@@ -33,6 +33,7 @@
 
 #include <mpi.h>
 #include <stdint.h>
+#include <ucp/api/ucp_def.h>
 
 /** Returned if some error in MPI routine occurs. */
 #define DHT_MPI_ERROR -1
@@ -80,6 +81,25 @@ typedef struct {
   int r_access;
 } DHT_stats;
 
+typedef struct ucx_handle_t {
+  ucp_context_h ucp_context;
+  ucp_worker_h ucp_worker;
+  void *ucp_worker_local_addr;
+  uint64_t ucp_worker_local_addr_len;
+  ucp_ep_h **ep_list;
+  ucp_mem_h mem_h;
+  void *local_mem_addr;
+  uint64_t *remote_addr;
+  void **rkey_buffer;
+  ucp_rkey_h *rkey_handles;
+} ucx_handle;
+
+typedef struct MPI_exchange_t {
+  MPI_Comm comm;
+  int size;
+  int rank;
+} MPI_exchange;
+
 /**
  * Struct which serves as a handler or so called \a DHT-object. Will
  * be created by DHT_create and must be passed as a parameter to every following
@@ -87,6 +107,9 @@ typedef struct {
  * Do not touch outside DHT functions!
  */
 typedef struct {
+  ucx_handle *ucx_h;
+  int rank;
+
   /** Created MPI Window, which serves as the DHT memory area of the process. */
   MPI_Win window;
   /** Size of the data of a bucket entry in byte. */
@@ -125,10 +148,11 @@ typedef struct {
 
 extern void DHT_set_accumulate_callback(DHT *table,
                                         int (*callback_func)(int, void *, int,
-                                                              void *));
+                                                             void *));
 
 extern int DHT_write_accumulate(DHT *table, const void *key, int send_size,
-                                void *data, uint32_t *proc, uint32_t *index, int *callback_ret);
+                                void *data, uint32_t *proc, uint32_t *index,
+                                int *callback_ret);
 
 /**
  * @brief Create a DHT.

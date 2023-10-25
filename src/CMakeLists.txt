@@ -1,4 +1,4 @@
-add_library(DHT DHT.c)
+add_library(DHT DHT.c ucx_functions.c)
 
-target_link_libraries(DHT PUBLIC MPI::MPI_C)
+target_link_libraries(DHT PUBLIC MPI::MPI_C ucx::ucp ucx::ucs)
 target_include_directories(DHT PUBLIC ${PROJECT_SOURCE_DIR}/include)
