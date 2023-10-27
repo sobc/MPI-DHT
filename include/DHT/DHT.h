@@ -144,13 +144,13 @@ typedef struct {
 #endif
 } DHT;
 
-extern void DHT_set_accumulate_callback(DHT *table,
-                                        int (*callback_func)(int, void *, int,
-                                                             void *));
+/* extern void DHT_set_accumulate_callback(DHT *table, */
+/*                                         int (*callback_func)(int, void *, int, */
+/*                                                              void *)); */
 
-extern int DHT_write_accumulate(DHT *table, const void *key, int send_size,
-                                void *data, uint32_t *proc, uint32_t *index,
-                                int *callback_ret);
+/* extern int DHT_write_accumulate(DHT *table, const void *key, int send_size, */
+/*                                 void *data, uint32_t *proc, uint32_t *index, */
+/*                                 int *callback_ret); */
 
 /**
  * @brief Create a DHT.
@@ -224,8 +224,8 @@ extern int DHT_write(DHT *table, void *key, void *data, uint32_t *proc,
  */
 extern int DHT_read(DHT *table, const void *key, void *destination);
 
-extern int DHT_read_location(DHT *table, uint32_t proc, uint32_t index,
-                             void *destination);
+/* extern int DHT_read_location(DHT *table, uint32_t proc, uint32_t index, */
+/*                              void *destination); */
 /**
  * @brief Write current state of DHT to file.
  *

@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-10-27 08:50:37 mluebke"
+/// Time-stamp: "Last modified 2023-10-27 09:28:47 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -32,7 +32,7 @@
 #include <unistd.h>
 
 #include "dht_macros.h"
-#include "ucx_functions.h"
+#include "ucx_init_deinit.h"
 
 static void determine_dest(uint64_t hash, int comm_size,
                            unsigned int table_size, unsigned int *dest_rank,

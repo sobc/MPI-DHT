@@ -5,7 +5,7 @@
 
 #include "DHT/DHT.h"
 #include "dht_macros.h"
-#include "ucx_functions.h"
+#include "ucx_init_deinit.h"
 
 ucs_status_t ucx_initContext(ucp_context_h *context) {
   ucs_status_t status;
