@@ -7,3 +7,4 @@ find_package(ucx REQUIRED)
 find_package(MPI REQUIRED)
 
 add_subdirectory(src)
+add_subdirectory(test)

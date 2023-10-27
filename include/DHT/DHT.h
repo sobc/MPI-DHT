@@ -84,11 +84,9 @@ typedef struct {
 typedef struct ucx_handle_t {
   ucp_context_h ucp_context;
   ucp_worker_h ucp_worker;
-  void *ucp_worker_local_addr;
-  uint64_t ucp_worker_local_addr_len;
-  ucp_ep_h **ep_list;
+  ucp_ep_h *ep_list;
   ucp_mem_h mem_h;
-  void *local_mem_addr;
+  uint64_t local_mem_addr;
   uint64_t *remote_addr;
   void **rkey_buffer;
   ucp_rkey_h *rkey_handles;

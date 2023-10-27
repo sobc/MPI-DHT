@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-10-25 09:46:55 mluebke"
+/// Time-stamp: "Last modified 2023-10-27 08:50:37 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -81,7 +81,7 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
 
   // HACK: this will be extinguished in future, as the exchange process will be
   // decoupled from the actual DHT semantics
-  MPI_exchange mpi_ex = {comm, size, rank};
+  MPI_exchange mpi_ex = {comm, comm_size, rank};
 
   // calculate how much bytes for the index are needed to address count of
   // buckets per process
@@ -99,19 +99,28 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   status = ucx_initContext(&object->ucx_h->ucp_context);
   CHK_UNLIKELY_RETURN(status != UCS_OK, "creating ucx context", NULL);
 
-  status = ucx_initWorker(object->ucx_h->ucp_context, &object->ucx_h->ucp_worker,
-                      object->ucx_h->ucp_worker_local_addr,
-                      &object->ucx_h->ucp_worker_local_addr_len);
+  ucp_address_t *local_addr_worker;
+  uint64_t local_addr_worker_len;
+
+  status =
+      ucx_initWorker(object->ucx_h->ucp_context, &object->ucx_h->ucp_worker,
+                     &local_addr_worker, &local_addr_worker_len);
   CHK_UNLIKELY_RETURN(status != UCS_OK, "creating worker", NULL);
 
-  status = ucx_exchangeWorkerMemory(object->ucx_h->ucp_worker,
-                                object->ucx_h->ucp_worker_local_addr,
-                                object->ucx_h->ucp_worker_local_addr_len,
-                                object->ucx_h->ep_list, &mpi_ex);
+  status = ucx_createEndpoints(object->ucx_h->ucp_worker, local_addr_worker,
+                               local_addr_worker_len, &object->ucx_h->ep_list,
+                               &mpi_ex);
   CHK_UNLIKELY_RETURN(status != UCS_OK, "exchange worker addresses", NULL);
 
-  status = ucx_createMemory(object->ucx_h->ucp_context, size_of_dht,
-                        &object->ucx_h->mem_h, object->ucx_h->local_mem_addr);
+  status =
+      ucx_createMemory(object->ucx_h->ucp_context, size_of_dht,
+                       &object->ucx_h->mem_h, &object->ucx_h->local_mem_addr);
+  CHK_UNLIKELY_RETURN(status != UCS_OK, "creating memory", NULL);
+
+  status = ucx_exchangeRKeys(
+      object->ucx_h->ucp_context, object->ucx_h->mem_h, object->ucx_h->ep_list,
+      object->ucx_h->local_mem_addr, &object->ucx_h->remote_addr,
+      &object->ucx_h->rkey_buffer, &object->ucx_h->rkey_handles, &mpi_ex);
 
   // every memory allocation has 1 additional byte for flags etc.
   if (MPI_Alloc_mem(size * (1 + data_size + key_size), MPI_INFO_NULL,
@@ -559,11 +568,6 @@ int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter) {
   int buf;
 
   ucs_status_t status;
-  ucs_status_ptr_t request;
-  ucp_request_param_t req_param;
-
-  req_param.op_attr_mask = UCP_OP_ATTR_FIELD_FLAGS;
-  req_param.flags = UCP_EP_CLOSE_MODE_FLUSH;
 
   if (eviction_counter != NULL) {
     buf = 0;
@@ -584,32 +588,20 @@ int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter) {
   if (MPI_Free_mem(table->mem_alloc) != 0)
     return DHT_MPI_ERROR;
 
-  for (int i = 0; i < table->comm_size; i++) {
-    ucp_rkey_destroy(table->ucx_h->rkey_handles[i]);
-    ucp_rkey_buffer_release(table->ucx_h->rkey_buffer[i]);
-
-    request = ucp_ep_close_nbx(*table->ucx_h->ep_list[i], &req_param);
-    CHK_UNLIKELY_RETURN(UCS_PTR_IS_ERR(request), "closing endpoint",
-                        UCS_PTR_STATUS(request));
-
-    if (unlikely(UCS_PTR_IS_PTR(request))) {
-      ucp_request_free(request);
-    }
+  ucx_releaseRKeys(table->ucx_h->rkey_handles, table->ucx_h->rkey_buffer,
+                   table->ucx_h->remote_addr, table->comm_size);
+  status = ucx_releaseEndpoints(table->ucx_h->ep_list, table->comm_size);
+  if (unlikely(status != UCS_OK)) {
+    return status;
   }
 
-  status = ucp_mem_unmap(table->ucx_h->ucp_context, table->ucx_h->mem_h);
-  CHK_UNLIKELY_RETURN(status != UCS_OK, "Unmapping memory", status);
+  status =
+      ucx_releaseLocalMemory(table->ucx_h->ucp_context, table->ucx_h->mem_h);
+  if (unlikely(status != UCS_OK)) {
+    return status;
+  }
 
-  ucp_worker_release_address(table->ucx_h->ucp_worker,
-                             table->ucx_h->ucp_worker_local_addr);
-
-  ucp_worker_destroy(table->ucx_h->ucp_worker);
-  ucp_cleanup(table->ucx_h->ucp_context);
-
-  free(table->ucx_h->ep_list);
-  free(table->ucx_h->remote_addr);
-  free(table->ucx_h->rkey_buffer);
-  free(table->ucx_h->rkey_handles);
+  ucx_cleanup(table->ucx_h->ucp_context, table->ucx_h->ucp_worker);
 
   free(table->ucx_h);
 
