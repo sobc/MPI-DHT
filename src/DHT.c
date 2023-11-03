@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-10-27 09:28:47 mluebke"
+/// Time-stamp: "Last modified 2023-11-03 16:08:41 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -21,6 +21,7 @@
 
 #include <inttypes.h>
 #include <math.h>
+#include <setjmp.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,8 +31,10 @@
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
 #include <unistd.h>
+#include <xxhash.h>
 
 #include "dht_macros.h"
+#include "ucx_communication.h"
 #include "ucx_init_deinit.h"
 
 static void determine_dest(uint64_t hash, int comm_size,
@@ -61,6 +64,10 @@ static int read_flag(char flag_byte) {
     return 0;
 }
 
+static uint32_t calc_chksum(const void *begin, int32_t count) {
+  return (uint32_t)XXH3_64bits(begin, count);
+}
+
 DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
                 unsigned int key_size,
                 uint64_t (*hash_func)(int, const void *)) {
@@ -71,7 +78,8 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
 
   ucs_status_t status;
 
-  uint64_t size_of_dht = size * (sizeof(uint64_t) + data_size + key_size);
+  uint64_t size_of_dht =
+      size * ((2 * sizeof(uint32_t)) + 1 + data_size + key_size);
 
   if (MPI_Comm_size(comm, &comm_size) != 0)
     return NULL;
@@ -81,7 +89,10 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
 
   // HACK: this will be extinguished in future, as the exchange process will be
   // decoupled from the actual DHT semantics
-  MPI_exchange mpi_ex = {comm, comm_size, rank};
+  MPI_exchange mpi_ex;
+  mpi_ex.comm = comm;
+  mpi_ex.rank = rank;
+  mpi_ex.size = comm_size;
 
   // calculate how much bytes for the index are needed to address count of
   // buckets per process
@@ -93,7 +104,7 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   object = (DHT *)malloc(sizeof(DHT));
   CHK_UNLIKELY_RETURN(object == NULL, "allocating DHT object", NULL);
 
-  object->ucx_h = (ucx_handle *)malloc(sizeof(ucx_handle));
+  object->ucx_h = (ucx_handle_t *)malloc(sizeof(ucx_handle_t));
   CHK_UNLIKELY_RETURN(object->ucx_h == NULL, "allocating ucx handle", NULL);
 
   status = ucx_initContext(&object->ucx_h->ucp_context);
@@ -123,22 +134,24 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
       &object->ucx_h->rkey_buffer, &object->ucx_h->rkey_handles, &mpi_ex);
 
   // every memory allocation has 1 additional byte for flags etc.
-  if (MPI_Alloc_mem(size * (1 + data_size + key_size), MPI_INFO_NULL,
-                    &mem_alloc) != 0)
-    return NULL;
+  /* if (MPI_Alloc_mem(size * (1 + data_size + key_size), MPI_INFO_NULL, */
+  /*                   &mem_alloc) != 0) */
+  /*   return NULL; */
 
-  // since MPI_Alloc_mem doesn't provide memory allocation with the memory set
-  // to zero, we're doing this here
-  memset(mem_alloc, '\0', size * (1 + data_size + key_size));
+  /* // since MPI_Alloc_mem doesn't provide memory allocation with the memory
+   * set */
+  /* // to zero, we're doing this here */
+  /* memset(mem_alloc, '\0', size * (1 + data_size + key_size)); */
 
-  // create windows on previously allocated memory
-  if (MPI_Win_create(mem_alloc, size * (1 + data_size + key_size),
-                     (1 + data_size + key_size), MPI_INFO_NULL, comm,
-                     &window) != 0)
-    return NULL;
+  /* // create windows on previously allocated memory */
+  /* if (MPI_Win_create(mem_alloc, size * (1 + data_size + key_size), */
+  /*                    (1 + data_size + key_size), MPI_INFO_NULL, comm, */
+  /*                    &window) != 0) */
+  /*   return NULL; */
 
   // fill dht-object
-  object->rank = rank;
+  object->ucx_h->offset = data_size + key_size + (sizeof(uint32_t) * 2) + 1;
+  object->ucx_h->lock_size = sizeof(uint32_t);
   object->data_size = data_size;
   object->key_size = key_size;
   object->table_size = size;
@@ -148,8 +161,8 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   object->communicator = comm;
   object->read_misses = 0;
   object->evictions = 0;
-  object->recv_entry = malloc(1 + data_size + key_size);
-  object->send_entry = malloc(1 + data_size + key_size);
+  object->recv_entry = malloc(1 + data_size + key_size + sizeof(uint32_t));
+  object->send_entry = malloc(1 + data_size + key_size + sizeof(uint32_t));
   object->index_count = 9 - (index_bytes / 8);
   object->index = (uint64_t *)malloc((object->index_count) * sizeof(uint64_t));
   object->mem_alloc = mem_alloc;
@@ -171,111 +184,122 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   object->stats->r_access = 0;
 #endif
 
+  if (UCS_OK != ucx_initPostRecv(object->ucx_h, object->comm_size)) {
+    return NULL;
+  }
+
   return object;
 }
 
-void DHT_set_accumulate_callback(DHT *table,
-                                 int (*callback_func)(int, void *, int,
-                                                      void *)) {
-  table->accumulate_callback = callback_func;
-}
+/* void DHT_set_accumulate_callback(DHT *table, */
+/*                                  int (*callback_func)(int, void *, int, */
+/*                                                       void *)) { */
+/*   table->accumulate_callback = callback_func; */
+/* } */
 
-int DHT_write_accumulate(DHT *table, const void *send_key, int data_size,
-                         void *send_data, uint32_t *proc, uint32_t *index,
-                         int *callback_ret) {
-  unsigned int dest_rank, i;
-  int result = DHT_SUCCESS;
+/* int DHT_write_accumulate(DHT *table, const void *send_key, int data_size, */
+/*                          void *send_data, uint32_t *proc, uint32_t *index, */
+/*                          int *callback_ret) { */
+/*   unsigned int dest_rank, i; */
+/*   int result = DHT_SUCCESS; */
 
-#ifdef DHT_STATISTICS
-  table->stats->w_access++;
-#endif
+/* #ifdef DHT_STATISTICS */
+/*   table->stats->w_access++; */
+/* #endif */
 
-  // determine destination rank and index by hash of key
-  determine_dest(table->hash_func(table->key_size, send_key), table->comm_size,
-                 table->table_size, &dest_rank, table->index,
-                 table->index_count);
+/*   // determine destination rank and index by hash of key */
+/*   determine_dest(table->hash_func(table->key_size, send_key),
+ * table->comm_size, */
+/*                  table->table_size, &dest_rank, table->index, */
+/*                  table->index_count); */
 
-  // concatenating key with data to write entry to DHT
-  set_flag((char *)table->send_entry);
-  memcpy((char *)table->send_entry + 1, (char *)send_key, table->key_size);
-  /* memcpy((char *)table->send_entry + table->key_size + 1, (char *)send_data,
-   */
-  /*        table->data_size); */
+/*   // concatenating key with data to write entry to DHT */
+/*   set_flag((char *)table->send_entry); */
+/*   memcpy((char *)table->send_entry + 1, (char *)send_key, table->key_size);
+ */
+/*   /\* memcpy((char *)table->send_entry + table->key_size + 1, (char
+ * *)send_data, */
+/*    *\/ */
+/*   /\*        table->data_size); *\/ */
 
-  // locking window of target rank with exclusive lock
-  if (MPI_Win_lock(MPI_LOCK_EXCLUSIVE, dest_rank, 0, table->window) != 0)
-    return DHT_MPI_ERROR;
-  for (i = 0; i < table->index_count; i++) {
-    if (MPI_Get(table->recv_entry, 1 + table->data_size + table->key_size,
-                MPI_BYTE, dest_rank, table->index[i],
-                1 + table->data_size + table->key_size, MPI_BYTE,
-                table->window) != 0)
-      return DHT_MPI_ERROR;
-    if (MPI_Win_flush(dest_rank, table->window) != 0)
-      return DHT_MPI_ERROR;
+/*   // locking window of target rank with exclusive lock */
+/*   if (MPI_Win_lock(MPI_LOCK_EXCLUSIVE, dest_rank, 0, table->window) != 0) */
+/*     return DHT_MPI_ERROR; */
+/*   for (i = 0; i < table->index_count; i++) { */
+/*     if (MPI_Get(table->recv_entry, 1 + table->data_size + table->key_size, */
+/*                 MPI_BYTE, dest_rank, table->index[i], */
+/*                 1 + table->data_size + table->key_size, MPI_BYTE, */
+/*                 table->window) != 0) */
+/*       return DHT_MPI_ERROR; */
+/*     if (MPI_Win_flush(dest_rank, table->window) != 0) */
+/*       return DHT_MPI_ERROR; */
 
-    // increment eviction counter if receiving key doesn't match sending key
-    // entry has write flag and last index is reached.
-    if (read_flag(*(char *)table->recv_entry)) {
-      if (memcmp(send_key, (char *)table->recv_entry + 1, table->key_size) !=
-          0) {
-        if (i == (table->index_count) - 1) {
-          table->evictions += 1;
-#ifdef DHT_STATISTICS
-          table->stats->evictions += 1;
-#endif
-          result = DHT_WRITE_SUCCESS_WITH_EVICTION;
-          break;
-        }
-      } else
-        break;
-    } else {
-#ifdef DHT_STATISTICS
-      table->stats->writes_local[dest_rank]++;
-#endif
-      break;
-    }
-  }
+/*     // increment eviction counter if receiving key doesn't match sending key
+ */
+/*     // entry has write flag and last index is reached. */
+/*     if (read_flag(*(char *)table->recv_entry)) { */
+/*       if (memcmp(send_key, (char *)table->recv_entry + 1, table->key_size) !=
+ */
+/*           0) { */
+/*         if (i == (table->index_count) - 1) { */
+/*           table->evictions += 1; */
+/* #ifdef DHT_STATISTICS */
+/*           table->stats->evictions += 1; */
+/* #endif */
+/*           result = DHT_WRITE_SUCCESS_WITH_EVICTION; */
+/*           break; */
+/*         } */
+/*       } else */
+/*         break; */
+/*     } else { */
+/* #ifdef DHT_STATISTICS */
+/*       table->stats->writes_local[dest_rank]++; */
+/* #endif */
+/*       break; */
+/*     } */
+/*   } */
 
-  if (result == DHT_WRITE_SUCCESS_WITH_EVICTION) {
-    memset((char *)table->send_entry + 1 + table->key_size, '\0',
-           table->data_size);
-  } else {
-    memcpy((char *)table->send_entry + 1 + table->key_size,
-           (char *)table->recv_entry + 1 + table->key_size, table->data_size);
-  }
+/*   if (result == DHT_WRITE_SUCCESS_WITH_EVICTION) { */
+/*     memset((char *)table->send_entry + 1 + table->key_size, '\0', */
+/*            table->data_size); */
+/*   } else { */
+/*     memcpy((char *)table->send_entry + 1 + table->key_size, */
+/*            (char *)table->recv_entry + 1 + table->key_size,
+ * table->data_size); */
+/*   } */
 
-  *callback_ret = table->accumulate_callback(
-      data_size, (char *)send_data, table->data_size,
-      (char *)table->send_entry + 1 + table->key_size);
+/*   *callback_ret = table->accumulate_callback( */
+/*       data_size, (char *)send_data, table->data_size, */
+/*       (char *)table->send_entry + 1 + table->key_size); */
 
-  // put data to DHT (with last selected index by value i)
-  if (*callback_ret == 0) {
-    if (MPI_Put(table->send_entry, 1 + table->data_size + table->key_size,
-                MPI_BYTE, dest_rank, table->index[i],
-                1 + table->data_size + table->key_size, MPI_BYTE,
-                table->window) != 0)
-      return DHT_MPI_ERROR;
-  }
-  // unlock window of target rank
-  if (MPI_Win_unlock(dest_rank, table->window) != 0)
-    return DHT_MPI_ERROR;
+/*   // put data to DHT (with last selected index by value i) */
+/*   if (*callback_ret == 0) { */
+/*     if (MPI_Put(table->send_entry, 1 + table->data_size + table->key_size, */
+/*                 MPI_BYTE, dest_rank, table->index[i], */
+/*                 1 + table->data_size + table->key_size, MPI_BYTE, */
+/*                 table->window) != 0) */
+/*       return DHT_MPI_ERROR; */
+/*   } */
+/*   // unlock window of target rank */
+/*   if (MPI_Win_unlock(dest_rank, table->window) != 0) */
+/*     return DHT_MPI_ERROR; */
 
-  if (proc) {
-    *proc = dest_rank;
-  }
+/*   if (proc) { */
+/*     *proc = dest_rank; */
+/*   } */
 
-  if (index) {
-    *index = table->index[i];
-  }
+/*   if (index) { */
+/*     *index = table->index[i]; */
+/*   } */
 
-  return result;
-}
+/*   return result; */
+/* } */
 
 int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
               uint32_t *index) {
   unsigned int dest_rank, i;
   int result = DHT_SUCCESS;
+  const char *buffer_begin = (char *)table->recv_entry;
 
 #ifdef DHT_STATISTICS
   table->stats->w_access++;
@@ -292,50 +316,67 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   memcpy((char *)table->send_entry + table->key_size + 1, (char *)send_data,
          table->data_size);
 
-  // locking window of target rank with exclusive lock
-  if (MPI_Win_lock(MPI_LOCK_EXCLUSIVE, dest_rank, 0, table->window) != 0)
-    return DHT_MPI_ERROR;
-  for (i = 0; i < table->index_count; i++) {
-    if (MPI_Get(table->recv_entry, 1 + table->data_size + table->key_size,
-                MPI_BYTE, dest_rank, table->index[i],
-                1 + table->data_size + table->key_size, MPI_BYTE,
-                table->window) != 0)
-      return DHT_MPI_ERROR;
-    if (MPI_Win_flush(dest_rank, table->window) != 0)
-      return DHT_MPI_ERROR;
+  const uint32_t chksum = calc_chksum((char *)table->send_entry + 1,
+                                      table->data_size + table->key_size);
 
-    // increment eviction counter if receiving key doesn't match sending key
-    // entry has write flag and last index is reached.
-    if (read_flag(*(char *)table->recv_entry)) {
-      if (memcmp(send_key, (char *)table->recv_entry + 1, table->key_size) !=
-          0) {
-        if (i == (table->index_count) - 1) {
-          table->evictions += 1;
-#ifdef DHT_STATISTICS
-          table->stats->evictions += 1;
-#endif
-          result = DHT_WRITE_SUCCESS_WITH_EVICTION;
-          break;
-        }
-      } else
-        break;
-    } else {
+  memcpy((char *)table->send_entry + table->data_size + table->key_size + 1,
+         &chksum, sizeof(uint32_t));
+
+  ucs_status_ptr_t get_req;
+
+  for (i = 0; i < table->index_count; i++) {
+    get_req =
+        ucx_get_data(table->ucx_h, dest_rank, table->index[i],
+                     table->data_size + table->key_size + 1 + sizeof(uint32_t),
+                     table->recv_entry);
+
+    if (unlikely(UCS_PTR_IS_ERR(get_req))) {
+      DHT_MPI_ERROR;
+    }
+
+    if (ucx_check_and_wait_completion(table->ucx_h, get_req) != UCS_OK) {
+      return DHT_MPI_ERROR;
+    }
+
+    if (UCS_OK != ucx_flush_ep(table->ucx_h, dest_rank)) {
+      return DHT_MPI_ERROR;
+    }
+
+    if ((read_flag(*(buffer_begin))) == 0) {
 #ifdef DHT_STATISTICS
       table->stats->writes_local[dest_rank]++;
 #endif
       break;
     }
+
+    if (memcmp((buffer_begin + 1), send_key, table->key_size) != 0) {
+      if (i == (table->index_count) - 1) {
+        table->evictions += 1;
+#ifdef DHT_STATISTICS
+        table->stats->evictions += 1;
+#endif
+        result = DHT_WRITE_SUCCESS_WITH_EVICTION;
+        break;
+      }
+    }
   }
 
-  // put data to DHT (with last selected index by value i)
-  if (MPI_Put(table->send_entry, 1 + table->data_size + table->key_size,
-              MPI_BYTE, dest_rank, table->index[i],
-              1 + table->data_size + table->key_size, MPI_BYTE,
-              table->window) != 0)
+  if (UCS_OK != ucx_write_acquire_lock(table->ucx_h, i, dest_rank)) {
     return DHT_MPI_ERROR;
-  // unlock window of target rank
-  if (MPI_Win_unlock(dest_rank, table->window) != 0)
+  };
+
+  get_req =
+      ucx_put_data(table->ucx_h, dest_rank, table->index[i],
+                   table->data_size + table->key_size + sizeof(uint32_t) + 1,
+                   table->send_entry);
+
+  if (UCS_OK != ucx_check_and_wait_completion(table->ucx_h, get_req)) {
     return DHT_MPI_ERROR;
+  }
+
+  if (UCS_OK != ucx_write_release_lock(table->ucx_h)) {
+    return DHT_MPI_ERROR;
+  }
 
   if (proc) {
     *proc = dest_rank;
@@ -350,6 +391,7 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
 
 int DHT_read(DHT *table, const void *send_key, void *destination) {
   unsigned int dest_rank, i;
+  const char *buffer_begin = (char *)table->recv_entry;
 
 #ifdef DHT_STATISTICS
   table->stats->r_access++;
@@ -360,51 +402,51 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
                  table->table_size, &dest_rank, table->index,
                  table->index_count);
 
-  // locking window of target rank with shared lock
-  if (MPI_Win_lock(MPI_LOCK_SHARED, dest_rank, 0, table->window) != 0)
-    return DHT_MPI_ERROR;
-  // receive data
-  for (i = 0; i < table->index_count; i++) {
-    if (MPI_Get(table->recv_entry, 1 + table->data_size + table->key_size,
-                MPI_BYTE, dest_rank, table->index[i],
-                1 + table->data_size + table->key_size, MPI_BYTE,
-                table->window) != 0)
-      return DHT_MPI_ERROR;
-    if (MPI_Win_flush(dest_rank, table->window) != 0)
-      return DHT_MPI_ERROR;
+  ucs_status_ptr_t get_req;
 
-    // increment read error counter if write flag isn't set ...
-    if ((read_flag(*(char *)table->recv_entry)) == 0) {
+  for (i = 0; i < table->index_count; i++) {
+    get_req =
+        ucx_get_data(table->ucx_h, dest_rank, table->index[i],
+                     table->data_size + table->key_size + 1 + sizeof(uint32_t),
+                     table->recv_entry);
+    int status = ucx_check_and_wait_completion(table->ucx_h, get_req);
+    if (status != UCS_OK) {
+      return status;
+    }
+
+    if (UCS_OK != ucx_flush_ep(table->ucx_h, dest_rank)) {
+      return DHT_MPI_ERROR;
+    }
+
+    if ((read_flag(*buffer_begin)) == 0) {
       table->read_misses += 1;
 #ifdef DHT_STATISTICS
       table->stats->read_misses += 1;
 #endif
       // unlock window and return
-      if (MPI_Win_unlock(dest_rank, table->window) != 0)
-        return DHT_MPI_ERROR;
       return DHT_READ_MISS;
     }
-
-    // ... or key doesn't match passed by key and last index reached.
-    if (memcmp(((char *)table->recv_entry) + 1, send_key, table->key_size) !=
-        0) {
+    if (memcmp((buffer_begin + 1), send_key, table->key_size) != 0) {
       if (i == (table->index_count) - 1) {
         table->read_misses += 1;
 #ifdef DHT_STATISTICS
         table->stats->read_misses += 1;
 #endif
         // unlock window an return
-        if (MPI_Win_unlock(dest_rank, table->window) != 0)
-          return DHT_MPI_ERROR;
-        return DHT_READ_MISS;
+        /* if (MPI_Win_unlock(dest_rank, table->window) != 0) */
+        /*   return DHT_MPI_ERROR; */
+        /* return DHT_READ_MISS; */
       }
     } else
       break;
   }
 
-  // unlock window of target rank
-  if (MPI_Win_unlock(dest_rank, table->window) != 0)
-    return DHT_MPI_ERROR;
+  const uint32_t *bucket_check =
+      (uint32_t *)(buffer_begin + table->data_size + table->key_size + 1);
+  if (*bucket_check !=
+      calc_chksum(buffer_begin + 1, table->key_size + table->data_size)) {
+    return DHT_READ_MISS;
+  }
 
   // if matching key was found copy data into memory of passed pointer
   memcpy((char *)destination, (char *)table->recv_entry + table->key_size + 1,
@@ -413,33 +455,34 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
   return DHT_SUCCESS;
 }
 
-int DHT_read_location(DHT *table, uint32_t proc, uint32_t index,
-                      void *destination) {
-  const uint32_t bucket_size = table->data_size + table->key_size + 1;
+/* int DHT_read_location(DHT *table, uint32_t proc, uint32_t index, */
+/*                       void *destination) { */
+/*   const uint32_t bucket_size = table->data_size + table->key_size + 1; */
 
-#ifdef DHT_STATISTICS
-  table->stats->r_access++;
-#endif
+/* #ifdef DHT_STATISTICS */
+/*   table->stats->r_access++; */
+/* #endif */
 
-  // locking window of target rank with shared lock
-  if (MPI_Win_lock(MPI_LOCK_SHARED, proc, 0, table->window) != 0)
-    return DHT_MPI_ERROR;
-  // receive data
-  if (MPI_Get(table->recv_entry, bucket_size, MPI_BYTE, proc, index,
-              bucket_size, MPI_BYTE, table->window) != 0) {
-    return DHT_MPI_ERROR;
-  }
+/*   // locking window of target rank with shared lock */
+/*   if (MPI_Win_lock(MPI_LOCK_SHARED, proc, 0, table->window) != 0) */
+/*     return DHT_MPI_ERROR; */
+/*   // receive data */
+/*   if (MPI_Get(table->recv_entry, bucket_size, MPI_BYTE, proc, index, */
+/*               bucket_size, MPI_BYTE, table->window) != 0) { */
+/*     return DHT_MPI_ERROR; */
+/*   } */
 
-  // unlock window of target rank
-  if (MPI_Win_unlock(proc, table->window) != 0)
-    return DHT_MPI_ERROR;
+/*   // unlock window of target rank */
+/*   if (MPI_Win_unlock(proc, table->window) != 0) */
+/*     return DHT_MPI_ERROR; */
 
-  // if matching key was found copy data into memory of passed pointer
-  memcpy((char *)destination, (char *)table->recv_entry + 1 + table->key_size,
-         table->data_size);
+/*   // if matching key was found copy data into memory of passed pointer */
+/*   memcpy((char *)destination, (char *)table->recv_entry + 1 +
+ * table->key_size, */
+/*          table->data_size); */
 
-  return DHT_SUCCESS;
-}
+/*   return DHT_SUCCESS; */
+/* } */
 
 int DHT_to_file(DHT *table, const char *filename) {
   // open file
@@ -583,11 +626,6 @@ int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter) {
       return DHT_MPI_ERROR;
     *readerror_counter = buf;
   }
-  if (MPI_Win_free(&(table->window)) != 0)
-    return DHT_MPI_ERROR;
-  if (MPI_Free_mem(table->mem_alloc) != 0)
-    return DHT_MPI_ERROR;
-
   ucx_releaseRKeys(table->ucx_h->rkey_handles, table->ucx_h->rkey_buffer,
                    table->ucx_h->remote_addr, table->comm_size);
   status = ucx_releaseEndpoints(table->ucx_h->ep_list, table->comm_size);

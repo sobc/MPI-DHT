@@ -6,5 +6,7 @@ project(DHT_UCX)
 find_package(ucx REQUIRED)
 find_package(MPI REQUIRED)
 
+find_library(LIB_XXHASH xxhash)
+
 add_subdirectory(src)
 add_subdirectory(test)

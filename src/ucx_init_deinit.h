@@ -5,6 +5,7 @@
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
 
+#include "DHT/DHT.h"
 #include "dht_macros.h"
 
 ucs_status_t ucx_initContext(ucp_context_h *context);

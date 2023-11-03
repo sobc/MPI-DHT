@@ -32,6 +32,7 @@
 #define DHT_H
 
 #include <mpi.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <ucp/api/ucp_def.h>
 
@@ -81,16 +82,24 @@ typedef struct {
   int r_access;
 } DHT_stats;
 
-typedef struct ucx_handle_t {
+struct ucx_handle_lock {
+  uint64_t lock_rem_addr;
+  int rank;
+};
+
+typedef struct ucx_handle {
   ucp_context_h ucp_context;
   ucp_worker_h ucp_worker;
   ucp_ep_h *ep_list;
   ucp_mem_h mem_h;
   uint64_t local_mem_addr;
+  uint64_t offset;
   uint64_t *remote_addr;
   void **rkey_buffer;
   ucp_rkey_h *rkey_handles;
-} ucx_handle;
+  struct ucx_handle_lock lock_h;
+  uint32_t lock_size;
+} ucx_handle_t;
 
 typedef struct MPI_exchange_t {
   MPI_Comm comm;
@@ -105,8 +114,7 @@ typedef struct MPI_exchange_t {
  * Do not touch outside DHT functions!
  */
 typedef struct {
-  ucx_handle *ucx_h;
-  int rank;
+  ucx_handle_t *ucx_h;
 
   /** Created MPI Window, which serves as the DHT memory area of the process. */
   MPI_Win window;
@@ -145,11 +153,14 @@ typedef struct {
 } DHT;
 
 /* extern void DHT_set_accumulate_callback(DHT *table, */
-/*                                         int (*callback_func)(int, void *, int, */
+/*                                         int (*callback_func)(int, void *,
+ * int, */
 /*                                                              void *)); */
 
-/* extern int DHT_write_accumulate(DHT *table, const void *key, int send_size, */
-/*                                 void *data, uint32_t *proc, uint32_t *index, */
+/* extern int DHT_write_accumulate(DHT *table, const void *key, int send_size,
+ */
+/*                                 void *data, uint32_t *proc, uint32_t *index,
+ */
 /*                                 int *callback_ret); */
 
 /**
