@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <ucp/api/ucp.h>
 #include <ucp/api/ucp_compat.h>
+#include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
 
 #include "DHT/DHT.h"
@@ -18,8 +20,7 @@ ucs_status_t ucx_initContext(ucp_context_h *context) {
   CHK_UNLIKELY_RETURN(status != UCS_OK, "ucp_config_read", status);
 
   ucp_params.field_mask = UCP_PARAM_FIELD_FEATURES;
-  ucp_params.features =
-      UCP_FEATURE_RMA | UCP_FEATURE_AMO32;
+  ucp_params.features = UCP_FEATURE_RMA | UCP_FEATURE_AMO32;
 
   status = ucp_init(&ucp_params, config, context);
 
@@ -116,6 +117,8 @@ ucs_status_t ucx_createMemory(ucp_context_h context, uint64_t size,
   status = ucp_mem_query(*mem_h, &mem_attr);
   CHK_UNLIKELY_RETURN(status != UCS_OK, "Query memory handle", status);
 
+  memset(mem_attr.address, '\0', size);
+
   *local_mem = (uint64_t)mem_attr.address;
 
   return UCS_OK;
@@ -194,7 +197,7 @@ void ucx_releaseRKeys(ucp_rkey_h *rkey_handles, void **rkey_buffer,
 }
 
 ucs_status_t ucx_releaseEndpoints(ucp_ep_h *endpoint_handles,
-                                  int endpoint_count) {
+                                  int endpoint_count, ucp_worker_h worker) {
   ucs_status_ptr_t request;
   ucp_request_param_t req_param;
 
@@ -206,7 +209,12 @@ ucs_status_t ucx_releaseEndpoints(ucp_ep_h *endpoint_handles,
     CHK_UNLIKELY_RETURN(UCS_PTR_IS_ERR(request), "Closing endpoint",
                         UCS_PTR_STATUS(request));
 
-    if (unlikely(UCS_PTR_IS_PTR(request))) {
+    if (request != NULL) {
+      ucs_status_t status;
+      do {
+        ucp_worker_progress(worker);
+        status = ucp_request_check_status(request);
+      } while (status == UCS_INPROGRESS);
       ucp_request_free(request);
     }
   }

@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-03 16:08:41 mluebke"
+/// Time-stamp: "Last modified 2023-11-08 08:46:19 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -78,8 +78,13 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
 
   ucs_status_t status;
 
-  uint64_t size_of_dht =
-      size * ((2 * sizeof(uint32_t)) + 1 + data_size + key_size);
+  const uint64_t bucket_size = 2 * sizeof(uint32_t) + data_size + key_size + 1;
+  uint8_t padding = bucket_size % sizeof(uint32_t);
+  if (!!padding) {
+    padding = sizeof(uint32_t) - padding;
+  }
+
+  uint64_t size_of_dht = size * (bucket_size + padding);
 
   if (MPI_Comm_size(comm, &comm_size) != 0)
     return NULL;
@@ -150,7 +155,9 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   /*   return NULL; */
 
   // fill dht-object
-  object->ucx_h->offset = data_size + key_size + (sizeof(uint32_t) * 2) + 1;
+  object->ucx_h->offset =
+      data_size + key_size + (sizeof(uint32_t) * 2) + 1 + padding;
+  object->ucx_h->flag_padding = padding - 1;
   object->ucx_h->lock_size = sizeof(uint32_t);
   object->data_size = data_size;
   object->key_size = key_size;
@@ -361,7 +368,8 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
     }
   }
 
-  if (UCS_OK != ucx_write_acquire_lock(table->ucx_h, i, dest_rank)) {
+  if (UCS_OK !=
+      ucx_write_acquire_lock(table->ucx_h, table->index[i], dest_rank)) {
     return DHT_MPI_ERROR;
   };
 
@@ -628,7 +636,8 @@ int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter) {
   }
   ucx_releaseRKeys(table->ucx_h->rkey_handles, table->ucx_h->rkey_buffer,
                    table->ucx_h->remote_addr, table->comm_size);
-  status = ucx_releaseEndpoints(table->ucx_h->ep_list, table->comm_size);
+  status = ucx_releaseEndpoints(table->ucx_h->ep_list, table->comm_size,
+                                table->ucx_h->ucp_worker);
   if (unlikely(status != UCS_OK)) {
     return status;
   }

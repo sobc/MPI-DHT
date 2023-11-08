@@ -31,7 +31,7 @@ void ucx_releaseRKeys(ucp_rkey_h *rkey_handles, void **rkey_buffer,
                       uint64_t *rem_addresses, int rkey_count);
 
 ucs_status_t ucx_releaseEndpoints(ucp_ep_h *endpoint_handles,
-                                  int endpoint_count);
+                                  int endpoint_count, ucp_worker_h worker);
 
 ucs_status_t ucx_releaseLocalMemory(ucp_context_h context,
                                     ucp_mem_h memory_handle);

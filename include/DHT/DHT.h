@@ -99,6 +99,7 @@ typedef struct ucx_handle {
   ucp_rkey_h *rkey_handles;
   struct ucx_handle_lock lock_h;
   uint32_t lock_size;
+  uint8_t flag_padding;
 } ucx_handle_t;
 
 typedef struct MPI_exchange_t {
@@ -115,7 +116,6 @@ typedef struct MPI_exchange_t {
  */
 typedef struct {
   ucx_handle_t *ucx_h;
-
   /** Created MPI Window, which serves as the DHT memory area of the process. */
   MPI_Win window;
   /** Size of the data of a bucket entry in byte. */

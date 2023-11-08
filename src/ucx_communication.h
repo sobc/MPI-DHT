@@ -7,6 +7,9 @@
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
 
+#define BUCKET_LOCK ((uint64_t)0x0000000000000001UL)
+#define BUCKET_UNLOCK ((uint64_t)0x0000000000000000UL)
+
 typedef struct ucx_request_handle {
   ucp_worker_h worker;
   ucp_ep_h endpoint;
@@ -30,10 +33,10 @@ ucs_status_ptr_t *ucx_get_data(const ucx_handle_t *ucx_h, int rank,
                                uint64_t index, uint64_t count, void *buffer);
 
 ucs_status_t ucx_put(const ucx_handle_t *ucx_h, int rank, uint64_t index,
-                        const void *buffer, uint64_t count);
+                     const void *buffer, uint64_t count);
 
 ucs_status_t ucx_get(const ucx_handle_t *ucx_h, int rank, uint64_t index,
-                        void *buffer, uint64_t count);
+                     void *buffer, uint64_t count);
 
 ucs_status_t ucx_check_and_wait_completion(const ucx_handle_t *ucx_h,
                                            ucs_status_ptr_t *request);

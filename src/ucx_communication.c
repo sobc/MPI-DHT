@@ -8,7 +8,7 @@
 
 ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ctx_h, uint64_t index,
                                     int rank) {
-  const uint32_t unacquired = 0;
+  const uint32_t unacquired = BUCKET_UNLOCK;
   uint32_t cswap_val;
 
   ctx_h->lock_h.lock_rem_addr =
@@ -23,7 +23,7 @@ ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ctx_h, uint64_t index,
   cswap_param.reply_buffer = &cswap_val;
 
   do {
-    cswap_val = 1;
+    cswap_val = BUCKET_LOCK;
 
     ucs_status_ptr_t request = ucp_atomic_op_nbx(
         ctx_h->ep_list[rank], UCP_ATOMIC_OP_CSWAP, &unacquired, 1,
@@ -39,7 +39,7 @@ ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ctx_h, uint64_t index,
       return status_flush;
     }
 
-  } while (cswap_val != 1);
+  } while (cswap_val != BUCKET_LOCK);
 
   return UCS_OK;
 }
@@ -53,7 +53,7 @@ ucs_status_ptr_t *ucx_put_data(const ucx_handle_t *ucx_h, int rank,
 
   return ucp_put_nbx(ucx_h->ep_list[rank], buffer, count,
                      ucx_h->remote_addr[rank] + (ucx_h->offset * index) +
-                         ucx_h->lock_size,
+                         ucx_h->lock_size + ucx_h->flag_padding,
                      ucx_h->rkey_handles[rank], &put_param);
 }
 
@@ -65,7 +65,7 @@ ucs_status_ptr_t *ucx_get_data(const ucx_handle_t *ucx_h, int rank,
 
   return ucp_get_nbx(ucx_h->ep_list[rank], buffer, count,
                      ucx_h->remote_addr[rank] + (ucx_h->offset * index) +
-                         ucx_h->lock_size,
+                         ucx_h->lock_size + ucx_h->flag_padding,
                      ucx_h->rkey_handles[rank], &get_param);
 }
 
@@ -125,29 +125,32 @@ ucs_status_t ucx_flush_ep(const ucx_handle_t *ucx_h, int rank) {
 
   if (req == NULL) {
     return UCS_OK;
-  } else if (UCS_PTR_IS_ERR(req)) {
-    return UCS_PTR_STATUS(req);
-  } else {
-    ucs_status_t status;
-    do {
-      ucp_worker_progress(ucx_h->ucp_worker);
-      status = ucp_request_check_status(req);
-    } while (status == UCS_INPROGRESS);
-    ucp_request_free(req);
-    return status;
   }
+  if (UCS_PTR_IS_ERR(req)) {
+    return UCS_PTR_STATUS(req);
+  }
+  ucs_status_t status;
+  do {
+    ucp_worker_progress(ucx_h->ucp_worker);
+    status = ucp_request_check_status(req);
+  } while (status == UCS_INPROGRESS);
+  ucp_request_free(req);
+  return status;
 }
 
 ucs_status_t ucx_write_release_lock(const ucx_handle_t *ucx_h) {
-  const int32_t decrement_lock = -1;
+  const uint32_t unlock = BUCKET_UNLOCK;
+  uint32_t reply_buffer;
 
   ucp_request_param_t add_param;
-  add_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
+  add_param.op_attr_mask =
+      UCP_OP_ATTR_FIELD_DATATYPE | UCP_OP_ATTR_FIELD_REPLY_BUFFER;
   add_param.datatype = ucp_dt_make_contig(4);
+  add_param.reply_buffer = &reply_buffer;
 
   ucs_status_ptr_t request =
-      ucp_atomic_op_nbx(ucx_h->ep_list[ucx_h->lock_h.rank], UCP_ATOMIC_OP_ADD,
-                        &decrement_lock, 1, ucx_h->lock_h.lock_rem_addr,
+      ucp_atomic_op_nbx(ucx_h->ep_list[ucx_h->lock_h.rank], UCP_ATOMIC_OP_SWAP,
+                        &unlock, 1, ucx_h->lock_h.lock_rem_addr,
                         ucx_h->rkey_handles[ucx_h->lock_h.rank], &add_param);
 
   ucs_status_t status = ucx_check_and_wait_completion(ucx_h, request);
