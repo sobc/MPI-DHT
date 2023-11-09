@@ -8,6 +8,8 @@
 #include "DHT/DHT.h"
 #include "dht_macros.h"
 
+#define UCX_REQ_FEAT (UCP_FEATURE_RMA | UCP_FEATURE_AMO32 | UCP_FEATURE_TAG)
+
 ucs_status_t ucx_initContext(ucp_context_h *context);
 
 ucs_status_t ucx_initWorker(ucp_context_h context, ucp_worker_h *worker,
@@ -21,11 +23,7 @@ ucs_status_t ucx_createEndpoints(ucp_worker_h worker, ucp_address_t *local_addr,
 ucs_status_t ucx_createMemory(ucp_context_h context, uint64_t size,
                               ucp_mem_h *mem_h, uint64_t *local_mem);
 
-ucs_status_t ucx_exchangeRKeys(const ucp_context_h context,
-                               const ucp_mem_h mem_h, const ucp_ep_h *ep_list,
-                               const uint64_t local_addr, uint64_t **rem_addr,
-                               void ***rkey_buffer, ucp_rkey_h **rkey_handles,
-                               void *func_arg);
+ucs_status_t ucx_exchangeRKeys(ucx_handle_t *ucx_h);
 
 void ucx_releaseRKeys(ucp_rkey_h *rkey_handles, void **rkey_buffer,
                       uint64_t *rem_addresses, int rkey_count);

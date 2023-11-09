@@ -1,3 +1,5 @@
+#include <inttypes.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +10,7 @@
 
 #include "DHT/DHT.h"
 #include "dht_macros.h"
+#include "ucx_communication.h"
 #include "ucx_init_deinit.h"
 
 ucs_status_t ucx_initContext(ucp_context_h *context) {
@@ -20,7 +23,7 @@ ucs_status_t ucx_initContext(ucp_context_h *context) {
   CHK_UNLIKELY_RETURN(status != UCS_OK, "ucp_config_read", status);
 
   ucp_params.field_mask = UCP_PARAM_FIELD_FEATURES;
-  ucp_params.features = UCP_FEATURE_RMA | UCP_FEATURE_AMO32;
+  ucp_params.features = UCX_REQ_FEAT;
 
   status = ucp_init(&ucp_params, config, context);
 
@@ -89,7 +92,6 @@ ucs_status_t ucx_createEndpoints(ucp_worker_h worker, ucp_address_t *local_addr,
 
     if (i != params->rank) {
       free(current_ep_addr);
-      ucp_ep_print_info((*ep_list)[i], stdout);
     }
   }
 
@@ -124,14 +126,9 @@ ucs_status_t ucx_createMemory(ucp_context_h context, uint64_t size,
   return UCS_OK;
 }
 
-ucs_status_t ucx_exchangeRKeys(const ucp_context_h context,
-                               const ucp_mem_h mem_h, const ucp_ep_h *ep_list,
-                               const uint64_t local_addr, uint64_t **rem_addr,
-                               void ***rkey_buffer, ucp_rkey_h **rkey_handles,
-                               void *func_arg) {
+ucs_status_t ucx_exchangeRKeys(ucx_handle_t *ucx_h) {
   ucs_status_t status;
 
-  MPI_exchange *params = (MPI_exchange *)func_arg;
   uint64_t curr_rkey_size;
   size_t local_rkey_size;
 
@@ -139,47 +136,72 @@ ucs_status_t ucx_exchangeRKeys(const ucp_context_h context,
   uint64_t *local_rem_addr;
   ucp_rkey_h *local_rkey_handles;
 
-  local_rem_addr = (uint64_t *)malloc(sizeof(uint64_t) * params->size);
+  local_rem_addr = (uint64_t *)malloc(sizeof(uint64_t) * ucx_h->comm_size);
   CHK_UNLIKELY_RETURN(local_rem_addr == NULL,
                       "allocating remote addresses array", UCS_ERR_NO_MEMORY);
 
-  local_rkey_buffer = (void **)malloc(sizeof(void *) * params->size);
+  local_rkey_buffer = (void **)malloc(sizeof(void *) * ucx_h->comm_size);
   CHK_UNLIKELY_RETURN(local_rkey_buffer == NULL, "allocating rkey buffer",
                       UCS_ERR_NO_MEMORY);
 
-  local_rkey_handles = (ucp_rkey_h *)malloc(sizeof(ucp_rkey_h) * params->size);
+  local_rkey_handles =
+      (ucp_rkey_h *)malloc(sizeof(ucp_rkey_h) * ucx_h->comm_size);
   CHK_UNLIKELY_RETURN(local_rkey_handles == NULL,
                       "allocating rkey handle array", UCS_ERR_NO_MEMORY);
 
-  status = ucp_rkey_pack(context, mem_h, &local_rkey_buffer[params->rank],
-                         &local_rkey_size);
+  status =
+      ucp_rkey_pack(ucx_h->ucp_context, ucx_h->mem_h,
+                    &local_rkey_buffer[ucx_h->self_rank], &local_rkey_size);
   CHK_UNLIKELY_RETURN(status != UCS_OK, "packing rkey", status);
 
-  for (int i = 0; i < params->size; i++) {
-    if (i == params->rank) {
+  for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
+    if (i == ucx_h->self_rank) {
       curr_rkey_size = local_rkey_size;
-      local_rem_addr[i] = local_addr;
+      local_rem_addr[i] = ucx_h->local_mem_addr;
     }
 
-    MPI_Bcast(&curr_rkey_size, 1, MPI_UINT64_T, i, params->comm);
-    MPI_Bcast(&local_rem_addr[i], 1, MPI_UINT64_T, i, params->comm);
+    status = ucx_broadcast(ucx_h, i, &curr_rkey_size, sizeof(uint64_t), 0);
+    if (status != UCS_OK) {
+      return status;
+    }
 
-    if (i != params->rank) {
+    status = ucx_broadcast(ucx_h, i, &local_rem_addr[i], sizeof(uint64_t), 1);
+    if (status != UCS_OK) {
+      return status;
+    }
+
+    if (i != ucx_h->self_rank) {
       local_rkey_buffer[i] = malloc(curr_rkey_size);
       CHK_UNLIKELY_RETURN(local_rkey_buffer[i] == NULL,
                           "Allocating rkey buffer element", UCS_ERR_NO_MEMORY);
     }
 
-    MPI_Bcast(local_rkey_buffer[i], curr_rkey_size, MPI_BYTE, i, params->comm);
+    status = ucx_broadcast(ucx_h, i, local_rkey_buffer[i], curr_rkey_size, 2);
+    if (status != UCS_OK) {
+      return status;
+    }
 
-    status = ucp_ep_rkey_unpack(ep_list[i], local_rkey_buffer[i],
+    /* MPI_Bcast(&curr_rkey_size, 1, MPI_UINT64_T, i, params->comm); */
+    /* MPI_Bcast(&local_rem_addr[i], 1, MPI_UINT64_T, i, params->comm); */
+
+    /* if (i != ucx_h->self_rank) { */
+    /*   local_rkey_buffer[i] = malloc(curr_rkey_size); */
+    /*   CHK_UNLIKELY_RETURN(local_rkey_buffer[i] == NULL, */
+    /*                       "Allocating rkey buffer element",
+     * UCS_ERR_NO_MEMORY); */
+    /* } */
+
+    /* MPI_Bcast(local_rkey_buffer[i], curr_rkey_size, MPI_BYTE, i,
+     * params->comm); */
+
+    status = ucp_ep_rkey_unpack(ucx_h->ep_list[i], local_rkey_buffer[i],
                                 &local_rkey_handles[i]);
     CHK_UNLIKELY_RETURN(status != UCS_OK, "unpacking rkey", status);
   }
 
-  *rem_addr = local_rem_addr;
-  *rkey_buffer = local_rkey_buffer;
-  *rkey_handles = local_rkey_handles;
+  ucx_h->remote_addr = local_rem_addr;
+  ucx_h->rkey_buffer = local_rkey_buffer;
+  ucx_h->rkey_handles = local_rkey_handles;
 
   return UCS_OK;
 }

@@ -1,10 +1,21 @@
 #include "ucx_communication.h"
+#include "DHT/DHT.h"
 #include "dht_macros.h"
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <ucp/api/ucp.h>
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
+
+#include <inttypes.h>
+
+static void empty_callback_send(void *request, ucs_status_t status, void *ctx) {
+}
+
+static void empty_callback_recv(void *request, ucs_status_t status,
+                                const ucp_tag_recv_info_t *info,
+                                void *user_data) {}
 
 ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ctx_h, uint64_t index,
                                     int rank) {
@@ -29,7 +40,8 @@ ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ctx_h, uint64_t index,
         ctx_h->ep_list[rank], UCP_ATOMIC_OP_CSWAP, &unacquired, 1,
         ctx_h->lock_h.lock_rem_addr, ctx_h->rkey_handles[rank], &cswap_param);
 
-    ucs_status_t status = ucx_check_and_wait_completion(ctx_h, request);
+    ucs_status_t status =
+        ucx_check_and_wait_completion(ctx_h, request, CHECK_NO_WAIT);
     if (unlikely(status != UCS_OK)) {
       return status;
     }
@@ -75,7 +87,7 @@ ucs_status_t ucx_put(const ucx_handle_t *ucx_h, int rank, uint64_t index,
 
   ucs_status_t status;
 
-  status = ucx_check_and_wait_completion(ucx_h, req);
+  status = ucx_check_and_wait_completion(ucx_h, req, CHECK_NO_WAIT);
 
   if (UCS_OK != status) {
     return status;
@@ -90,7 +102,7 @@ ucs_status_t ucx_get(const ucx_handle_t *ucx_h, int rank, uint64_t index,
 
   ucs_status_t status;
 
-  status = ucx_check_and_wait_completion(ucx_h, req);
+  status = ucx_check_and_wait_completion(ucx_h, req, CHECK_NO_WAIT);
 
   if (UCS_OK != status) {
     return status;
@@ -100,17 +112,23 @@ ucs_status_t ucx_get(const ucx_handle_t *ucx_h, int rank, uint64_t index,
 }
 
 ucs_status_t ucx_check_and_wait_completion(const ucx_handle_t *ucx_h,
-                                           ucs_status_ptr_t *request) {
+                                           ucs_status_ptr_t *request, int imm) {
   if (unlikely(UCS_PTR_IS_ERR(request))) {
     return UCS_PTR_STATUS(request);
   }
-
   if (request != NULL) {
-    /* do { */
-    /*   ucp_worker_progress(ucx_h->ucp_worker); */
-    /*   status = ucp_request_check_status(request); */
-    /* } while (status == UCS_INPROGRESS); */
+    ucs_status_t status = UCS_OK;
+    if (!!imm) {
+      do {
+        ucp_worker_progress(ucx_h->ucp_worker);
+        status = ucp_request_check_status(request);
+      } while (status == UCS_INPROGRESS);
+    }
     ucp_request_free(request);
+
+    if (status != UCS_OK) {
+      return status;
+    }
   }
 
   return UCS_OK;
@@ -153,7 +171,8 @@ ucs_status_t ucx_write_release_lock(const ucx_handle_t *ucx_h) {
                         &unlock, 1, ucx_h->lock_h.lock_rem_addr,
                         ucx_h->rkey_handles[ucx_h->lock_h.rank], &add_param);
 
-  ucs_status_t status = ucx_check_and_wait_completion(ucx_h, request);
+  ucs_status_t status =
+      ucx_check_and_wait_completion(ucx_h, request, CHECK_NO_WAIT);
   if (unlikely(status != UCS_OK)) {
     return status;
   }
@@ -174,6 +193,120 @@ ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h, int size) {
     status = ucx_get(ucx_h, i, 0, &data, sizeof(data));
     if (UCS_OK != status) {
       return status;
+    }
+  }
+
+  return UCS_OK;
+}
+
+ucs_status_t ucx_broadcast(const ucx_handle_t *ucx_h, uint64_t root, void *msg,
+                           uint64_t msg_size, uint32_t msg_tag) {
+  ucs_status_t status;
+  ucs_status_ptr_t request;
+  ucp_request_param_t tag_param = {.flags = UCP_OP_ATTR_FIELD_DATATYPE |
+                                            UCP_OP_ATTR_FIELD_CALLBACK,
+                                   .datatype = ucp_dt_make_contig(1),
+                                   .user_data = NULL};
+
+  uint64_t expected_tag = root << 32 | msg_tag;
+
+  if (root == ucx_h->self_rank) {
+
+    for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
+      if (i == ucx_h->self_rank) {
+        continue;
+      }
+
+      tag_param.cb.send = empty_callback_send;
+
+      request =
+          ucp_tag_send_nbx(ucx_h->ep_list[i], msg, msg_size, expected_tag, &tag_param);
+
+      status = ucp_worker_fence(ucx_h->ucp_worker);
+      if (status != UCS_OK) {
+        return status;
+      }
+
+      status = ucx_check_and_wait_completion(ucx_h, request, CHECK_WAIT);
+      if (unlikely(status != UCS_OK)) {
+        return status;
+      }
+
+      /* status = ucx_flush_ep(ucx_h, i); */
+      /* if (unlikely(status != UCS_OK)) { */
+      /*   return status; */
+      /* } */
+    }
+  } else {
+    ucp_tag_message_h msg_h;
+    ucp_tag_recv_info_t msg_info;
+
+    do {
+      ucp_worker_progress(ucx_h->ucp_worker);
+
+      msg_h = ucp_tag_probe_nb(ucx_h->ucp_worker, expected_tag, UINT64_MAX,
+                               1, &msg_info);
+    } while (msg_h == NULL);
+
+    tag_param.flags |= UCP_OP_ATTR_FIELD_CALLBACK;
+    tag_param.cb.recv = empty_callback_recv;
+
+    request = ucp_tag_msg_recv_nbx(ucx_h->ucp_worker, msg, msg_info.length,
+                                   msg_h, &tag_param);
+
+    status = ucp_worker_fence(ucx_h->ucp_worker);
+    if (status != UCS_OK) {
+      return status;
+    }
+
+    status = ucx_check_and_wait_completion(ucx_h, request, CHECK_WAIT);
+    if (unlikely(status != UCS_OK)) {
+      return status;
+    }
+  }
+
+  return UCS_OK;
+}
+
+static ucs_status_t ucx_flush_all_ep(const ucx_handle_t *ucx_h) {
+  ucs_status_t status;
+  for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
+    status = ucx_flush_ep(ucx_h, i);
+    if (status != UCS_OK) {
+      return status;
+    }
+  }
+
+  return UCS_OK;
+}
+
+ucs_status_t ucx_barrier(const ucx_handle_t *ucx_h) {
+  uint32_t msg = 0;
+
+  ucs_status_t status;
+
+  status = ucp_worker_fence(ucx_h->ucp_worker);
+  if (status != UCS_OK) {
+    return status;
+  }
+
+  status = ucx_flush_all_ep(ucx_h);
+  if (status != UCS_OK) {
+    return status;
+  }
+
+  for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
+    if (i == ucx_h->self_rank) {
+      msg = i;
+    }
+
+    status = ucx_broadcast(ucx_h, i, &msg, sizeof(msg), i);
+    if (status != UCS_OK) {
+      return status;
+    }
+
+    if (msg != i) {
+      return UCS_ERR_INVALID_PARAM;
     }
   }
 

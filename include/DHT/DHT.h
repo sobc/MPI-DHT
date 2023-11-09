@@ -100,6 +100,8 @@ typedef struct ucx_handle {
   struct ucx_handle_lock lock_h;
   uint32_t lock_size;
   uint8_t flag_padding;
+  uint32_t comm_size;
+  uint32_t self_rank;
 } ucx_handle_t;
 
 typedef struct MPI_exchange_t {
@@ -116,8 +118,6 @@ typedef struct MPI_exchange_t {
  */
 typedef struct {
   ucx_handle_t *ucx_h;
-  /** Created MPI Window, which serves as the DHT memory area of the process. */
-  MPI_Win window;
   /** Size of the data of a bucket entry in byte. */
   int data_size;
   /** Size of the key of a bucket entry in byte. */
@@ -134,8 +134,6 @@ typedef struct {
   void *recv_entry;
   /** Pre-allocated memory where a bucket to send can be stored. */
   void *send_entry;
-  /** Allocated memory on which the MPI window was created. */
-  void *mem_alloc;
   /** Count of read misses over all time. */
   int read_misses;
   /** Count of evictions over all time. */

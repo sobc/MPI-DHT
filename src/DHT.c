@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-08 08:46:19 mluebke"
+/// Time-stamp: "Last modified 2023-11-09 09:18:11 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -133,10 +133,14 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
                        &object->ucx_h->mem_h, &object->ucx_h->local_mem_addr);
   CHK_UNLIKELY_RETURN(status != UCS_OK, "creating memory", NULL);
 
-  status = ucx_exchangeRKeys(
-      object->ucx_h->ucp_context, object->ucx_h->mem_h, object->ucx_h->ep_list,
-      object->ucx_h->local_mem_addr, &object->ucx_h->remote_addr,
-      &object->ucx_h->rkey_buffer, &object->ucx_h->rkey_handles, &mpi_ex);
+  object->ucx_h->comm_size = comm_size;
+  object->ucx_h->self_rank = rank;
+
+  status = ucx_exchangeRKeys(object->ucx_h);
+  CHK_UNLIKELY_RETURN(status != UCS_OK, "exchange Rkeys", NULL);
+
+  status = ucx_barrier(object->ucx_h);
+  CHK_UNLIKELY_RETURN(status != UCS_OK, "barrier", NULL);
 
   // every memory allocation has 1 additional byte for flags etc.
   /* if (MPI_Alloc_mem(size * (1 + data_size + key_size), MPI_INFO_NULL, */
@@ -157,12 +161,11 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   // fill dht-object
   object->ucx_h->offset =
       data_size + key_size + (sizeof(uint32_t) * 2) + 1 + padding;
-  object->ucx_h->flag_padding = padding - 1;
+  object->ucx_h->flag_padding = padding;
   object->ucx_h->lock_size = sizeof(uint32_t);
   object->data_size = data_size;
   object->key_size = key_size;
   object->table_size = size;
-  object->window = window;
   object->hash_func = hash_func;
   object->comm_size = comm_size;
   object->communicator = comm;
@@ -172,7 +175,6 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   object->send_entry = malloc(1 + data_size + key_size + sizeof(uint32_t));
   object->index_count = 9 - (index_bytes / 8);
   object->index = (uint64_t *)malloc((object->index_count) * sizeof(uint64_t));
-  object->mem_alloc = mem_alloc;
 
   // if set, initialize dht_stats
 #ifdef DHT_STATISTICS
@@ -341,7 +343,8 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
       DHT_MPI_ERROR;
     }
 
-    if (ucx_check_and_wait_completion(table->ucx_h, get_req) != UCS_OK) {
+    if (ucx_check_and_wait_completion(table->ucx_h, get_req, CHECK_NO_WAIT) !=
+        UCS_OK) {
       return DHT_MPI_ERROR;
     }
 
@@ -365,7 +368,10 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
         result = DHT_WRITE_SUCCESS_WITH_EVICTION;
         break;
       }
+      continue;
     }
+
+    break;
   }
 
   if (UCS_OK !=
@@ -378,7 +384,8 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
                    table->data_size + table->key_size + sizeof(uint32_t) + 1,
                    table->send_entry);
 
-  if (UCS_OK != ucx_check_and_wait_completion(table->ucx_h, get_req)) {
+  if (UCS_OK !=
+      ucx_check_and_wait_completion(table->ucx_h, get_req, CHECK_NO_WAIT)) {
     return DHT_MPI_ERROR;
   }
 
@@ -417,7 +424,8 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
         ucx_get_data(table->ucx_h, dest_rank, table->index[i],
                      table->data_size + table->key_size + 1 + sizeof(uint32_t),
                      table->recv_entry);
-    int status = ucx_check_and_wait_completion(table->ucx_h, get_req);
+    int status =
+        ucx_check_and_wait_completion(table->ucx_h, get_req, CHECK_NO_WAIT);
     if (status != UCS_OK) {
       return status;
     }
@@ -493,50 +501,50 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
 /* } */
 
 int DHT_to_file(DHT *table, const char *filename) {
-  // open file
-  MPI_File file;
-  if (MPI_File_open(table->communicator, filename,
-                    MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL,
-                    &file) != 0)
-    return DHT_FILE_IO_ERROR;
+  /* // open file */
+  /* MPI_File file; */
+  /* if (MPI_File_open(table->communicator, filename, */
+  /*                   MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, */
+  /*                   &file) != 0) */
+  /*   return DHT_FILE_IO_ERROR; */
 
-  int rank;
-  MPI_Comm_rank(table->communicator, &rank);
+  /* int rank; */
+  /* MPI_Comm_rank(table->communicator, &rank); */
 
-  // write header (key_size and data_size)
-  if (rank == 0) {
-    if (MPI_File_write_shared(file, &table->key_size, 1, MPI_INT,
-                              MPI_STATUS_IGNORE) != 0)
-      return DHT_FILE_WRITE_ERROR;
-    if (MPI_File_write_shared(file, &table->data_size, 1, MPI_INT,
-                              MPI_STATUS_IGNORE) != 0)
-      return DHT_FILE_WRITE_ERROR;
-  }
+  /* // write header (key_size and data_size) */
+  /* if (rank == 0) { */
+  /*   if (MPI_File_write_shared(file, &table->key_size, 1, MPI_INT, */
+  /*                             MPI_STATUS_IGNORE) != 0) */
+  /*     return DHT_FILE_WRITE_ERROR; */
+  /*   if (MPI_File_write_shared(file, &table->data_size, 1, MPI_INT, */
+  /*                             MPI_STATUS_IGNORE) != 0) */
+  /*     return DHT_FILE_WRITE_ERROR; */
+  /* } */
 
-  MPI_Barrier(table->communicator);
+  /* MPI_Barrier(table->communicator); */
 
-  char *ptr;
-  int bucket_size = table->key_size + table->data_size + 1;
+  /* char *ptr; */
+  /* int bucket_size = table->key_size + table->data_size + 1; */
 
-  // iterate over local memory
-  for (unsigned int i = 0; i < table->table_size; i++) {
-    ptr = (char *)table->mem_alloc + (i * bucket_size);
-    // if bucket has been written to (checked by written_flag)...
-    if (read_flag(*ptr)) {
-      // write key and data to file
-      if (MPI_File_write_shared(file, ptr + 1, bucket_size - 1, MPI_BYTE,
-                                MPI_STATUS_IGNORE) != 0)
-        return DHT_FILE_WRITE_ERROR;
-    }
-  }
+  /* // iterate over local memory */
+  /* for (unsigned int i = 0; i < table->table_size; i++) { */
+  /*   ptr = (char *)table->mem_alloc + (i * bucket_size); */
+  /*   // if bucket has been written to (checked by written_flag)... */
+  /*   if (read_flag(*ptr)) { */
+  /*     // write key and data to file */
+  /*     if (MPI_File_write_shared(file, ptr + 1, bucket_size - 1, MPI_BYTE, */
+  /*                               MPI_STATUS_IGNORE) != 0) */
+  /*       return DHT_FILE_WRITE_ERROR; */
+  /*   } */
+  /* } */
 
-  MPI_Barrier(table->communicator);
+  /* MPI_Barrier(table->communicator); */
 
-  // close file
-  if (MPI_File_close(&file) != 0)
-    return DHT_FILE_IO_ERROR;
+  /* // close file */
+  /* if (MPI_File_close(&file) != 0) */
+  /*   return DHT_FILE_IO_ERROR; */
 
-  return DHT_SUCCESS;
+  /* return DHT_SUCCESS; */
 }
 
 int DHT_from_file(DHT *table, const char *filename) {
@@ -619,6 +627,12 @@ int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter) {
   int buf;
 
   ucs_status_t status;
+
+  status = ucx_barrier(table->ucx_h);
+
+  if (status != UCS_OK) {
+    return status;
+  }
 
   if (eviction_counter != NULL) {
     buf = 0;
