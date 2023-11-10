@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
     MPI_Abort(MPI_COMM_WORLD, status);
   }
 
-  MPI_Barrier(MPI_COMM_WORLD);
+  DHT_fence(object);
 
   key = (rank + 1) % comm_size;
 

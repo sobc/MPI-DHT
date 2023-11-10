@@ -242,6 +242,11 @@ ucs_status_t ucx_barrier(const ucx_handle_t *ucx_h) {
 
   ucs_status_t status;
 
+  status = ucx_flush_all_ep(ucx_h);
+  if (status != UCS_OK) {
+    return status;
+  }
+
   for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
     if (i == ucx_h->self_rank) {
       msg = i;
@@ -256,6 +261,14 @@ ucs_status_t ucx_barrier(const ucx_handle_t *ucx_h) {
       return UCS_ERR_INVALID_PARAM;
     }
   }
+
+  // Maybe there are some outstanding operations after all processes
+  // synchronized ...
+  int processed = 0;
+
+  do {
+    processed = ucp_worker_progress(ucx_h->ucp_worker);
+  } while (processed != 0);
 
   return UCS_OK;
 }
