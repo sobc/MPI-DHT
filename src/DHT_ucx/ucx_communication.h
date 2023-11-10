@@ -1,7 +1,7 @@
 #ifndef UCX_COMMUNICATION_H_
 #define UCX_COMMUNICATION_H_
 
-#include "DHT/DHT.h"
+#include "DHT_ucx/DHT.h"
 #include <stdint.h>
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>

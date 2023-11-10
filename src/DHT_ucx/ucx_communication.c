@@ -1,5 +1,5 @@
 #include "ucx_communication.h"
-#include "DHT/DHT.h"
+#include "DHT_ucx/DHT.h"
 #include "dht_macros.h"
 #include "ucx_init_deinit.h"
 

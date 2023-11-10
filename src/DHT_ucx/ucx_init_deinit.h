@@ -5,7 +5,7 @@
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
 
-#include "DHT/DHT.h"
+#include "DHT_ucx/DHT.h"
 #include "dht_macros.h"
 
 #define UCX_REQ_FEAT (UCP_FEATURE_RMA | UCP_FEATURE_AMO32 | UCP_FEATURE_TAG)

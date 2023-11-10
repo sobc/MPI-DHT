@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-10 09:22:51 mluebke"
+/// Time-stamp: "Last modified 2023-11-10 10:15:30 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -16,7 +16,7 @@
 ** Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 */
 
-#include <DHT/DHT.h>
+#include <DHT_ucx/DHT.h>
 #include <mpi.h>
 
 #include <inttypes.h>
