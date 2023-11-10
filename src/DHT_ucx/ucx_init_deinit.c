@@ -15,10 +15,6 @@
 #include "ucx_communication.h"
 #include "ucx_init_deinit.h"
 
-static void request_init(void *request) {
-  ((struct ucx_request *)request)->completed = 0;
-}
-
 ucs_status_t ucx_initContext(ucp_context_h *context) {
   ucs_status_t status;
 
@@ -187,19 +183,6 @@ ucs_status_t ucx_exchangeRKeys(ucx_handle_t *ucx_h) {
       return status;
     }
 
-    /* MPI_Bcast(&curr_rkey_size, 1, MPI_UINT64_T, i, params->comm); */
-    /* MPI_Bcast(&local_rem_addr[i], 1, MPI_UINT64_T, i, params->comm); */
-
-    /* if (i != ucx_h->self_rank) { */
-    /*   local_rkey_buffer[i] = malloc(curr_rkey_size); */
-    /*   CHK_UNLIKELY_RETURN(local_rkey_buffer[i] == NULL, */
-    /*                       "Allocating rkey buffer element",
-     * UCS_ERR_NO_MEMORY); */
-    /* } */
-
-    /* MPI_Bcast(local_rkey_buffer[i], curr_rkey_size, MPI_BYTE, i,
-     * params->comm); */
-
     status = ucp_ep_rkey_unpack(ucx_h->ep_list[i], local_rkey_buffer[i],
                                 &local_rkey_handles[i]);
     CHK_UNLIKELY_RETURN(status != UCS_OK, "unpacking rkey", status);
@@ -235,11 +218,6 @@ ucs_status_t ucx_releaseEndpoints(ucp_ep_h *endpoint_handles,
     request = ucp_ep_close_nbx(endpoint_handles[i], &req_param);
 
     if (UCS_PTR_IS_PTR(request)) {
-      /* ucs_status_t status; */
-      /* do { */
-      /*   ucp_worker_progress(worker); */
-      /*   status = ucp_request_check_status(request); */
-      /* } while (status == UCS_INPROGRESS); */
       ucp_request_free(request);
     }
   }
