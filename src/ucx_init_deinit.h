@@ -10,6 +10,10 @@
 
 #define UCX_REQ_FEAT (UCP_FEATURE_RMA | UCP_FEATURE_AMO32 | UCP_FEATURE_TAG)
 
+struct ucx_request {
+  int completed;
+};
+
 ucs_status_t ucx_initContext(ucp_context_h *context);
 
 ucs_status_t ucx_initWorker(ucp_context_h context, ucp_worker_h *worker,

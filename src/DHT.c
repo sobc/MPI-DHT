@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-09 09:18:11 mluebke"
+/// Time-stamp: "Last modified 2023-11-10 09:22:51 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -650,14 +650,13 @@ int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter) {
   }
   ucx_releaseRKeys(table->ucx_h->rkey_handles, table->ucx_h->rkey_buffer,
                    table->ucx_h->remote_addr, table->comm_size);
-  status = ucx_releaseEndpoints(table->ucx_h->ep_list, table->comm_size,
-                                table->ucx_h->ucp_worker);
+  status =
+      ucx_releaseLocalMemory(table->ucx_h->ucp_context, table->ucx_h->mem_h);
   if (unlikely(status != UCS_OK)) {
     return status;
   }
-
-  status =
-      ucx_releaseLocalMemory(table->ucx_h->ucp_context, table->ucx_h->mem_h);
+  status = ucx_releaseEndpoints(table->ucx_h->ep_list, table->comm_size,
+                                table->ucx_h->ucp_worker);
   if (unlikely(status != UCS_OK)) {
     return status;
   }

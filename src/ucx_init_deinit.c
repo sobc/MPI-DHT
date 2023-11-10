@@ -8,22 +8,26 @@
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
 
+#include <unistd.h>
+
 #include "DHT/DHT.h"
 #include "dht_macros.h"
 #include "ucx_communication.h"
 #include "ucx_init_deinit.h"
 
+static void request_init(void *request) {
+  ((struct ucx_request *)request)->completed = 0;
+}
+
 ucs_status_t ucx_initContext(ucp_context_h *context) {
   ucs_status_t status;
 
   ucp_config_t *config;
-  ucp_params_t ucp_params;
+  ucp_params_t ucp_params = {.field_mask = UCP_PARAM_FIELD_FEATURES,
+                             .features = UCX_REQ_FEAT};
 
   status = ucp_config_read(NULL, NULL, &config);
   CHK_UNLIKELY_RETURN(status != UCS_OK, "ucp_config_read", status);
-
-  ucp_params.field_mask = UCP_PARAM_FIELD_FEATURES;
-  ucp_params.features = UCX_REQ_FEAT;
 
   status = ucp_init(&ucp_params, config, context);
 
@@ -65,7 +69,9 @@ ucs_status_t ucx_createEndpoints(ucp_worker_h worker, ucp_address_t *local_addr,
   uint64_t current_ep_addr_len;
 
   ucp_ep_params_t ep_params;
-  ep_params.field_mask = UCP_EP_PARAM_FIELD_REMOTE_ADDRESS;
+  ep_params.field_mask =
+      UCP_EP_PARAM_FIELD_REMOTE_ADDRESS | UCP_EP_PARAM_FIELD_ERR_HANDLING_MODE;
+  ep_params.err_mode = UCP_ERR_HANDLING_MODE_NONE;
 
   *ep_list = (ucp_ep_h *)malloc(sizeof(ucp_ep_h) * params->size);
   CHK_UNLIKELY_RETURN(*ep_list == NULL, "allocating ep list",
@@ -220,23 +226,20 @@ void ucx_releaseRKeys(ucp_rkey_h *rkey_handles, void **rkey_buffer,
 
 ucs_status_t ucx_releaseEndpoints(ucp_ep_h *endpoint_handles,
                                   int endpoint_count, ucp_worker_h worker) {
-  ucs_status_ptr_t request;
-  ucp_request_param_t req_param;
 
-  req_param.op_attr_mask = UCP_OP_ATTR_FIELD_FLAGS;
-  req_param.flags = UCP_EP_CLOSE_MODE_FLUSH;
+  ucs_status_t status;
+  ucs_status_ptr_t request;
+  ucp_request_param_t req_param = {.op_attr_mask = 0};
 
   for (int i = 0; i < endpoint_count; i++) {
-    request = ucp_ep_close_nb(endpoint_handles[i], UCP_EP_CLOSE_MODE_FLUSH);
-    CHK_UNLIKELY_RETURN(UCS_PTR_IS_ERR(request), "Closing endpoint",
-                        UCS_PTR_STATUS(request));
+    request = ucp_ep_close_nbx(endpoint_handles[i], &req_param);
 
-    if (request != NULL) {
-      ucs_status_t status;
-      do {
-        ucp_worker_progress(worker);
-        status = ucp_request_check_status(request);
-      } while (status == UCS_INPROGRESS);
+    if (UCS_PTR_IS_PTR(request)) {
+      /* ucs_status_t status; */
+      /* do { */
+      /*   ucp_worker_progress(worker); */
+      /*   status = ucp_request_check_status(request); */
+      /* } while (status == UCS_INPROGRESS); */
       ucp_request_free(request);
     }
   }
@@ -252,6 +255,8 @@ ucs_status_t ucx_releaseLocalMemory(ucp_context_h context,
 }
 
 void ucx_cleanup(ucp_context_h context, ucp_worker_h worker_handle) {
+  int processed = 0;
+
   ucp_worker_destroy(worker_handle);
   ucp_cleanup(context);
 }
