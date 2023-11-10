@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-10 10:15:30 mluebke"
+/// Time-stamp: "Last modified 2023-11-10 10:48:55 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -31,11 +31,12 @@
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
 #include <unistd.h>
-#include <xxhash.h>
 
 #include "dht_macros.h"
 #include "ucx_communication.h"
 #include "ucx_init_deinit.h"
+
+#define CROP_HASH(hash) (uint32_t) hash
 
 static void determine_dest(uint64_t hash, int comm_size,
                            unsigned int table_size, unsigned int *dest_rank,
@@ -62,10 +63,6 @@ static int read_flag(char flag_byte) {
     return 1;
   } else
     return 0;
-}
-
-static uint32_t calc_chksum(const void *begin, int32_t count) {
-  return (uint32_t)XXH3_64bits(begin, count);
 }
 
 DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
@@ -309,15 +306,15 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   unsigned int dest_rank, i;
   int result = DHT_SUCCESS;
   const char *buffer_begin = (char *)table->recv_entry;
+  const uint64_t hash = table->hash_func(table->key_size, send_key);
 
 #ifdef DHT_STATISTICS
   table->stats->w_access++;
 #endif
 
   // determine destination rank and index by hash of key
-  determine_dest(table->hash_func(table->key_size, send_key), table->comm_size,
-                 table->table_size, &dest_rank, table->index,
-                 table->index_count);
+  determine_dest(hash, table->comm_size, table->table_size, &dest_rank,
+                 table->index, table->index_count);
 
   // concatenating key with data to write entry to DHT
   set_flag((char *)table->send_entry);
@@ -325,8 +322,7 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   memcpy((char *)table->send_entry + table->key_size + 1, (char *)send_data,
          table->data_size);
 
-  const uint32_t chksum = calc_chksum((char *)table->send_entry + 1,
-                                      table->data_size + table->key_size);
+  const uint32_t chksum = CROP_HASH(hash);
 
   memcpy((char *)table->send_entry + table->data_size + table->key_size + 1,
          &chksum, sizeof(uint32_t));
@@ -407,15 +403,15 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
 int DHT_read(DHT *table, const void *send_key, void *destination) {
   unsigned int dest_rank, i;
   const char *buffer_begin = (char *)table->recv_entry;
+  const uint64_t hash = table->hash_func(table->key_size, send_key);
 
 #ifdef DHT_STATISTICS
   table->stats->r_access++;
 #endif
 
   // determine destination rank and index by hash of key
-  determine_dest(table->hash_func(table->key_size, send_key), table->comm_size,
-                 table->table_size, &dest_rank, table->index,
-                 table->index_count);
+  determine_dest(hash, table->comm_size, table->table_size, &dest_rank,
+                 table->index, table->index_count);
 
   ucs_status_ptr_t get_req;
 
@@ -459,8 +455,7 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
 
   const uint32_t *bucket_check =
       (uint32_t *)(buffer_begin + table->data_size + table->key_size + 1);
-  if (*bucket_check !=
-      calc_chksum(buffer_begin + 1, table->key_size + table->data_size)) {
+  if (*bucket_check != CROP_HASH(hash)) {
     return DHT_READ_MISS;
   }
 
