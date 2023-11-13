@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-13 09:42:01 mluebke"
+/// Time-stamp: "Last modified 2023-11-13 16:04:52 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -76,10 +76,14 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   ucs_status_t status;
 
   const uint64_t bucket_size = 2 * sizeof(uint32_t) + data_size + key_size + 1;
+#ifdef DHT_WITH_LOCKING
   uint8_t padding = bucket_size % sizeof(uint32_t);
   if (!!padding) {
     padding = sizeof(uint32_t) - padding;
   }
+#else
+  uint8_t padding = 0;
+#endif
 
   uint64_t size_of_dht = size * (bucket_size + padding);
 
@@ -661,7 +665,7 @@ int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter,
     *readerror_counter = buf;
   }
   if (chksum_retries != NULL) {
-     buf = 0;
+    buf = 0;
     if (MPI_Reduce(&table->chksum_retries, &buf, 1, MPI_UINT32_T, MPI_SUM, 0,
                    table->communicator) != 0) {
       return DHT_MPI_ERROR;
