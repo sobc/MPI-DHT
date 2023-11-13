@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-13 16:04:52 mluebke"
+/// Time-stamp: "Last modified 2023-11-13 16:21:39 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -329,7 +329,9 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   memcpy((char *)table->send_entry + table->key_size + 1, (char *)send_data,
          table->data_size);
 
-  const uint32_t chksum = CROP_HASH(hash);
+  const void *key_val_begin = (char *)table->send_entry + 1;
+  const uint32_t chksum = CROP_HASH(
+      table->hash_func(table->key_size + table->data_size, key_val_begin));
 
   memcpy((char *)table->send_entry + table->data_size + table->key_size + 1,
          &chksum, sizeof(uint32_t));
@@ -463,9 +465,12 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
         /* return DHT_READ_MISS; */
       }
     } else {
+      const void *key_val_begin = buffer_begin + 1;
       const uint32_t *bucket_check =
           (uint32_t *)(buffer_begin + table->data_size + table->key_size + 1);
-      if (*bucket_check != CROP_HASH(hash)) {
+      if (*bucket_check !=
+          CROP_HASH(table->hash_func(table->data_size + table->key_size,
+                                     key_val_begin))) {
         if (!retry) {
           retry = 1;
           i--;
