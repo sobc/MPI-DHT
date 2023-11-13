@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-10 11:39:21 mluebke"
+/// Time-stamp: "Last modified 2023-11-10 13:47:56 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -372,10 +372,12 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
     break;
   }
 
+#ifdef DHT_WITH_LOCKING
   if (UCS_OK !=
       ucx_write_acquire_lock(table->ucx_h, table->index[i], dest_rank)) {
     return DHT_MPI_ERROR;
   };
+#endif
 
   get_req =
       ucx_put_data(table->ucx_h, dest_rank, table->index[i],
@@ -387,9 +389,11 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
     return DHT_MPI_ERROR;
   }
 
+#ifdef DHT_WITH_LOCKING
   if (UCS_OK != ucx_write_release_lock(table->ucx_h)) {
     return DHT_MPI_ERROR;
   }
+#endif
 
   if (proc) {
     *proc = dest_rank;
