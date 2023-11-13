@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-10 13:47:56 mluebke"
+/// Time-stamp: "Last modified 2023-11-13 09:42:01 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -168,6 +168,7 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   object->communicator = comm;
   object->read_misses = 0;
   object->evictions = 0;
+  object->chksum_retries = 0;
   object->recv_entry = malloc(1 + data_size + key_size + sizeof(uint32_t));
   object->send_entry = malloc(1 + data_size + key_size + sizeof(uint32_t));
   object->index_count = 9 - (index_bytes / 8);
@@ -411,6 +412,8 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
   const char *buffer_begin = (char *)table->recv_entry;
   const uint64_t hash = table->hash_func(table->key_size, send_key);
 
+  uint8_t retry = 0;
+
 #ifdef DHT_STATISTICS
   table->stats->r_access++;
 #endif
@@ -455,14 +458,21 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
         /*   return DHT_MPI_ERROR; */
         /* return DHT_READ_MISS; */
       }
-    } else
-      break;
-  }
+    } else {
+      const uint32_t *bucket_check =
+          (uint32_t *)(buffer_begin + table->data_size + table->key_size + 1);
+      if (*bucket_check != CROP_HASH(hash)) {
+        if (!retry) {
+          retry = 1;
+          i--;
+          table->chksum_retries++;
+          continue;
+        }
+        return DHT_READ_MISS;
+      }
 
-  const uint32_t *bucket_check =
-      (uint32_t *)(buffer_begin + table->data_size + table->key_size + 1);
-  if (*bucket_check != CROP_HASH(hash)) {
-    return DHT_READ_MISS;
+      break;
+    }
   }
 
   // if matching key was found copy data into memory of passed pointer
@@ -624,8 +634,9 @@ int DHT_from_file(DHT *table, const char *filename) {
   return DHT_SUCCESS;
 }
 
-int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter) {
-  int buf;
+int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter,
+             uint32_t *chksum_retries) {
+  uint32_t buf;
 
   ucs_status_t status;
 
@@ -648,6 +659,14 @@ int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter) {
                    table->communicator) != 0)
       return DHT_MPI_ERROR;
     *readerror_counter = buf;
+  }
+  if (chksum_retries != NULL) {
+     buf = 0;
+    if (MPI_Reduce(&table->chksum_retries, &buf, 1, MPI_UINT32_T, MPI_SUM, 0,
+                   table->communicator) != 0) {
+      return DHT_MPI_ERROR;
+    }
+    *chksum_retries = buf;
   }
   ucx_releaseRKeys(table->ucx_h->rkey_handles, table->ucx_h->rkey_buffer,
                    table->ucx_h->remote_addr, table->comm_size);

@@ -138,6 +138,8 @@ typedef struct {
   int read_misses;
   /** Count of evictions over all time. */
   int evictions;
+
+  uint32_t chksum_retries;
   /** Array of indeces where a bucket can be stored. */
   uint64_t *index;
   /** Count of possible indeces. */
@@ -287,7 +289,8 @@ extern int DHT_from_file(DHT *table, const char *filename);
  * @return int Returns either DHT_SUCCESS on success or DHT_MPI_ERROR on
  * internal MPI error.
  */
-extern int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter);
+extern int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter,
+                    uint32_t *chksum_retries);
 
 /**
  * @brief Prints a table with statistics about current use of DHT.
