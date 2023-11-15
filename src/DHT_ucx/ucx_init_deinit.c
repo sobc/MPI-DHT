@@ -218,7 +218,15 @@ ucs_status_t ucx_releaseEndpoints(ucp_ep_h *endpoint_handles,
     request = ucp_ep_close_nbx(endpoint_handles[i], &req_param);
 
     if (UCS_PTR_IS_PTR(request)) {
+      do {
+        ucp_worker_progress(worker);
+        status = ucp_request_check_status(request);
+      } while (status == UCS_INPROGRESS);
       ucp_request_free(request);
+
+      if (!(status == UCS_OK || status == UCS_ERR_CONNECTION_RESET)) {
+        return status;
+      }
     }
   }
 
