@@ -64,7 +64,7 @@ int main(int argc, char **argv) {
     fprintf(stdout, "Rank %d: OK!\n", rank);
   }
 
-  status = DHT_free(object, NULL, NULL);
+  status = DHT_free(object, NULL, NULL, NULL);
   if (DHT_SUCCESS != status) {
     fprintf(stderr, "Error during free. Aborting ...\n");
     MPI_Abort(MPI_COMM_WORLD, status);
