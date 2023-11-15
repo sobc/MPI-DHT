@@ -129,10 +129,9 @@ ucs_status_t ucx_check_and_wait_completion(const ucx_handle_t *ucx_h,
 
 ucs_status_t ucx_flush_ep(const ucx_handle_t *ucx_h, int rank) {
   ucs_status_ptr_t *req;
-  ucp_request_param_t flush_param;
-  flush_param.op_attr_mask = 0;
+  ucp_request_param_t flush_param = {.op_attr_mask = 0};
 
-  req = ucp_worker_flush_nbx(ucx_h->ucp_worker, &flush_param);
+  req = ucp_ep_flush_nbx(ucx_h->ep_list[rank], &flush_param);
 
   return ucx_check_and_wait_completion(ucx_h, req, CHECK_WAIT);
 }
@@ -225,16 +224,13 @@ ucs_status_t ucx_broadcast(const ucx_handle_t *ucx_h, uint64_t root, void *msg,
   return status;
 }
 
-static ucs_status_t ucx_flush_all_ep(const ucx_handle_t *ucx_h) {
-  ucs_status_t status;
-  for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
-    status = ucx_flush_ep(ucx_h, i);
-    if (status != UCS_OK) {
-      return status;
-    }
-  }
+static ucs_status_t ucx_flush_worker(const ucx_handle_t *ucx_h) {
+  ucs_status_ptr_t *req;
+  ucp_request_param_t flush_param = {.op_attr_mask = 0};
 
-  return UCS_OK;
+  req = ucp_worker_flush_nbx(ucx_h->ucp_worker, &flush_param);
+
+  return ucx_check_and_wait_completion(ucx_h, req, CHECK_WAIT);
 }
 
 ucs_status_t ucx_barrier(const ucx_handle_t *ucx_h) {
@@ -242,7 +238,7 @@ ucs_status_t ucx_barrier(const ucx_handle_t *ucx_h) {
 
   ucs_status_t status;
 
-  status = ucx_flush_all_ep(ucx_h);
+  status = ucx_flush_worker(ucx_h);
   if (status != UCS_OK) {
     return status;
   }
