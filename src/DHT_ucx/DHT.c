@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-15 15:19:43 mluebke"
+/// Time-stamp: "Last modified 2023-11-15 16:21:56 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -50,18 +50,6 @@ static void determine_dest(uint64_t hash, int comm_size,
     index[i] = (uint64_t)(tmp_index % table_size);
   }
   *dest_rank = (unsigned int)(hash % comm_size);
-}
-
-static void set_flag(char *flag_byte) {
-  *flag_byte = 0;
-  *flag_byte |= (1 << 0);
-}
-
-static int read_flag(char flag_byte) {
-  if ((flag_byte & 0x01) == 0x01) {
-    return 1;
-  } else
-    return 0;
 }
 
 DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
@@ -323,7 +311,7 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
                  table->index, table->index_count);
 
   // concatenating key with data to write entry to DHT
-  set_flag((char *)table->send_entry);
+  *((char *)table->send_entry) = (0 | BUCKET_OCCUPIED);
   memcpy((char *)table->send_entry + 1, (char *)send_key, table->key_size);
   memcpy((char *)table->send_entry + table->key_size + 1, (char *)send_data,
          table->data_size);
@@ -346,7 +334,7 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
       return DHT_MPI_ERROR;
     }
 
-    if ((read_flag(*(buffer_begin))) == 0) {
+    if (!(*(buffer_begin) & (BUCKET_OCCUPIED | BUCKET_INVALID))) {
 #ifdef DHT_STATISTICS
       table->stats->writes_local[dest_rank]++;
 #endif
@@ -425,7 +413,7 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
       return DHT_MPI_ERROR;
     }
 
-    if ((read_flag(*buffer_begin)) == 0) {
+    if (!(*(buffer_begin) & (BUCKET_OCCUPIED))) {
       table->read_misses += 1;
 #ifdef DHT_STATISTICS
       table->stats->read_misses += 1;
@@ -439,12 +427,13 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
 #ifdef DHT_STATISTICS
         table->stats->read_misses += 1;
 #endif
-        // unlock window an return
-        /* if (MPI_Win_unlock(dest_rank, table->window) != 0) */
-        /*   return DHT_MPI_ERROR; */
-        /* return DHT_READ_MISS; */
       }
     } else {
+
+      if (*(buffer_begin) & (BUCKET_INVALID)) {
+        return DHT_READ_MISS;
+      }
+
       const void *key_val_begin = buffer_begin + 1;
       const uint32_t *bucket_check =
           (uint32_t *)(buffer_begin + table->data_size + table->key_size + 1);
@@ -457,6 +446,14 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
           table->chksum_retries++;
           continue;
         }
+
+        const char invalidate = *(buffer_begin) | BUCKET_INVALID;
+        status = ucx_put(table->ucx_h, dest_rank, table->index[i], &invalidate,
+                         sizeof(char));
+        if (status != UCS_OK) {
+          return DHT_MPI_ERROR;
+        }
+
         return DHT_READ_MISS;
       }
 

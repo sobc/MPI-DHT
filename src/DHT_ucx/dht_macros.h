@@ -1,6 +1,11 @@
 #ifndef DHT_MACROS_H_
 #define DHT_MACROS_H_
 
+#define DHT_BIT(i) 1UL << i
+
+#define BUCKET_OCCUPIED DHT_BIT(0)
+#define BUCKET_INVALID DHT_BIT(1)
+
 #define unlikely(_x) __builtin_expect(!!(_x), 0)
 
 #define CHK_UNLIKELY_ACTION(_cond, _msg, _action)                              \
