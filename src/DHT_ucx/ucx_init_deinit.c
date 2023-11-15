@@ -220,10 +220,6 @@ ucs_status_t ucx_releaseEndpoints(ucp_ep_h *endpoint_handles,
         status = ucp_request_check_status(request);
       } while (status == UCS_INPROGRESS);
       ucp_request_free(request);
-
-      if (!(status == UCS_OK || status == UCS_ERR_CONNECTION_RESET)) {
-        return status;
-      }
     }
   }
 
