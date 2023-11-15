@@ -335,24 +335,14 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   memcpy((char *)table->send_entry + table->data_size + table->key_size + 1,
          &chksum, sizeof(uint32_t));
 
-  ucs_status_ptr_t get_req;
+  ucs_status_t status;
 
   for (i = 0; i < table->index_count; i++) {
-    get_req =
-        ucx_get_data(table->ucx_h, dest_rank, table->index[i],
-                     table->data_size + table->key_size + 1 + sizeof(uint32_t),
-                     table->recv_entry);
+    status =
+        ucx_get(table->ucx_h, dest_rank, table->index[i], table->recv_entry,
+                table->data_size + table->key_size + 1 + sizeof(uint32_t));
 
-    if (unlikely(UCS_PTR_IS_ERR(get_req))) {
-      DHT_MPI_ERROR;
-    }
-
-    if (ucx_check_and_wait_completion(table->ucx_h, get_req, CHECK_NO_WAIT) !=
-        UCS_OK) {
-      return DHT_MPI_ERROR;
-    }
-
-    if (UCS_OK != ucx_flush_ep(table->ucx_h, dest_rank)) {
+    if (status != UCS_OK) {
       return DHT_MPI_ERROR;
     }
 
@@ -385,13 +375,10 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   };
 #endif
 
-  get_req =
-      ucx_put_data(table->ucx_h, dest_rank, table->index[i],
-                   table->data_size + table->key_size + sizeof(uint32_t) + 1,
-                   table->send_entry);
+  status = ucx_put(table->ucx_h, dest_rank, table->index[i], table->send_entry,
+                   table->data_size + table->key_size + sizeof(uint32_t) + 1);
 
-  if (UCS_OK !=
-      ucx_check_and_wait_completion(table->ucx_h, get_req, CHECK_NO_WAIT)) {
+  if (status != UCS_OK) {
     return DHT_MPI_ERROR;
   }
 
@@ -427,20 +414,14 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
   determine_dest(hash, table->comm_size, table->table_size, &dest_rank,
                  table->index, table->index_count);
 
-  ucs_status_ptr_t get_req;
+  ucs_status_t status;
 
   for (i = 0; i < table->index_count; i++) {
-    get_req =
-        ucx_get_data(table->ucx_h, dest_rank, table->index[i],
-                     table->data_size + table->key_size + 1 + sizeof(uint32_t),
-                     table->recv_entry);
-    int status =
-        ucx_check_and_wait_completion(table->ucx_h, get_req, CHECK_NO_WAIT);
-    if (status != UCS_OK) {
-      return status;
-    }
+    status =
+        ucx_get(table->ucx_h, dest_rank, table->index[i], table->recv_entry,
+                table->data_size + table->key_size + 1 + sizeof(uint32_t));
 
-    if (UCS_OK != ucx_flush_ep(table->ucx_h, dest_rank)) {
+    if (status != UCS_OK) {
       return DHT_MPI_ERROR;
     }
 
