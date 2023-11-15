@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-13 16:21:39 mluebke"
+/// Time-stamp: "Last modified 2023-11-15 15:19:43 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -33,8 +33,7 @@
 #include <unistd.h>
 
 #include "dht_macros.h"
-#include "ucx_communication.h"
-#include "ucx_init_deinit.h"
+#include "ucx_lib.h"
 
 #define CROP_HASH(hash) (uint32_t) hash
 

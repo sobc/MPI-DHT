@@ -1,7 +1,6 @@
-#include "ucx_communication.h"
 #include "DHT_ucx/DHT.h"
 #include "dht_macros.h"
-#include "ucx_init_deinit.h"
+#include "ucx_lib.h"
 
 #include <alloca.h>
 #include <stdint.h>

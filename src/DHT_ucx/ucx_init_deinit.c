@@ -1,3 +1,7 @@
+#include "DHT_ucx/DHT.h"
+#include "dht_macros.h"
+#include "ucx_lib.h"
+
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -7,13 +11,6 @@
 #include <ucp/api/ucp_compat.h>
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
-
-#include <unistd.h>
-
-#include "DHT_ucx/DHT.h"
-#include "dht_macros.h"
-#include "ucx_communication.h"
-#include "ucx_init_deinit.h"
 
 ucs_status_t ucx_initContext(ucp_context_h *context) {
   ucs_status_t status;

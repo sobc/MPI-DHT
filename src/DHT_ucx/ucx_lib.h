@@ -1,10 +1,14 @@
-#ifndef UCX_COMMUNICATION_H_
-#define UCX_COMMUNICATION_H_
+#ifndef UCX_LIB_H_
+#define UCX_LIB_H_
 
 #include "DHT_ucx/DHT.h"
+#include "dht_macros.h"
+
 #include <stdint.h>
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
+
+#define UCX_REQ_FEAT (UCP_FEATURE_RMA | UCP_FEATURE_AMO32 | UCP_FEATURE_TAG)
 
 #define BUCKET_LOCK ((uint64_t)0x0000000000000001UL)
 #define BUCKET_UNLOCK ((uint64_t)0x0000000000000000UL)
@@ -12,15 +16,32 @@
 #define CHECK_NO_WAIT 0
 #define CHECK_WAIT 1
 
-/* typedef struct ucx_request_handle { */
-/*   ucp_worker_h worker; */
-/*   ucp_ep_h endpoint; */
-/*   uint64_t rem_base_addr; */
-/*   uint32_t offset; */
-/*   ucp_rkey_h rkey_target; */
-/*   uint64_t lock_rem_addr; */
-/*   uint32_t lock_size; */
-/* } ucx_request_context_t; */
+ucs_status_t ucx_initContext(ucp_context_h *context);
+
+ucs_status_t ucx_initWorker(ucp_context_h context, ucp_worker_h *worker,
+                            ucp_address_t **local_address,
+                            uint64_t *local_addr_len);
+
+ucs_status_t ucx_createEndpoints(ucp_worker_h worker, ucp_address_t *local_addr,
+                                 uint64_t local_addr_len, ucp_ep_h **ep_list,
+                                 void *func_args);
+
+ucs_status_t ucx_createMemory(ucp_context_h context, uint64_t size,
+                              ucp_mem_h *mem_h, uint64_t *local_mem);
+
+ucs_status_t ucx_exchangeRKeys(ucx_handle_t *ucx_h);
+
+void ucx_releaseRKeys(ucp_rkey_h *rkey_handles, void **rkey_buffer,
+                      uint64_t *rem_addresses, int rkey_count);
+
+ucs_status_t ucx_releaseEndpoints(ucp_ep_h *endpoint_handles,
+                                  int endpoint_count, ucp_worker_h worker);
+
+ucs_status_t ucx_releaseLocalMemory(ucp_context_h context,
+                                    ucp_mem_h memory_handle);
+
+void ucx_cleanup(ucp_context_h context, ucp_worker_h worker_handle);
+
 
 ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h, int size);
 
@@ -51,4 +72,5 @@ ucs_status_t ucx_broadcast(const ucx_handle_t *ucx_h, uint64_t root, void *msg,
                            uint64_t msg_size, uint32_t msg_tag);
 
 ucs_status_t ucx_barrier(const ucx_handle_t *ucx_h);
-#endif // UCX_COMMUNICATION_H_
+
+#endif // UCX_LIB_H_
