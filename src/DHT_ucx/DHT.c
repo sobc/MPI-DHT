@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-17 09:12:08 mluebke"
+/// Time-stamp: "Last modified 2023-11-17 11:13:10 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -32,6 +32,7 @@
 #include <ucs/type/status.h>
 #include <unistd.h>
 
+#include "DHT_ucx/UCX_init.h"
 #include "dht_macros.h"
 #include "ucx_lib.h"
 
@@ -56,9 +57,10 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
                 unsigned int key_size,
                 uint64_t (*hash_func)(int, const void *)) {
   DHT *object;
-  MPI_Win window;
-  void *mem_alloc;
-  int comm_size, index_bytes, rank;
+
+  int comm_size;
+  int index_bytes;
+  int rank;
 
   ucs_status_t status;
 
@@ -74,18 +76,17 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
 
   uint64_t size_of_dht = size * (bucket_size + padding);
 
-  if (MPI_Comm_size(comm, &comm_size) != 0)
+  if (MPI_Comm_size(comm, &comm_size) != 0) {
     return NULL;
+  }
 
   if (MPI_Comm_rank(comm, &rank) != 0)
     return NULL;
 
   // HACK: this will be extinguished in future, as the exchange process will be
   // decoupled from the actual DHT semantics
-  MPI_exchange mpi_ex;
-  mpi_ex.comm = comm;
-  mpi_ex.rank = rank;
-  mpi_ex.size = comm_size;
+  ucx_ep_args_mpi_t mpi_ex = {
+      .comm = comm, .comm_size = comm_size, .rank = rank};
 
   // calculate how much bytes for the index are needed to address count of
   // buckets per process
@@ -100,21 +101,8 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   object->ucx_h = (ucx_handle_t *)malloc(sizeof(ucx_handle_t));
   CHK_UNLIKELY_RETURN(object->ucx_h == NULL, "allocating ucx handle", NULL);
 
-  status = ucx_initContext(&object->ucx_h->ucp_context);
+  status = ucx_init_endpoints(object->ucx_h, ucx_worker_bcast_mpi, &mpi_ex);
   CHK_UNLIKELY_RETURN(status != UCS_OK, "creating ucx context", NULL);
-
-  ucp_address_t *local_addr_worker;
-  uint64_t local_addr_worker_len;
-
-  status =
-      ucx_initWorker(object->ucx_h->ucp_context, &object->ucx_h->ucp_worker,
-                     &local_addr_worker, &local_addr_worker_len);
-  CHK_UNLIKELY_RETURN(status != UCS_OK, "creating worker", NULL);
-
-  status = ucx_createEndpoints(object->ucx_h->ucp_worker, local_addr_worker,
-                               local_addr_worker_len, &object->ucx_h->ep_list,
-                               &mpi_ex);
-  CHK_UNLIKELY_RETURN(status != UCS_OK, "exchange worker addresses", NULL);
 
   status =
       ucx_createMemory(object->ucx_h->ucp_context, size_of_dht,
@@ -129,22 +117,6 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
 
   status = ucx_barrier(object->ucx_h);
   CHK_UNLIKELY_RETURN(status != UCS_OK, "barrier", NULL);
-
-  // every memory allocation has 1 additional byte for flags etc.
-  /* if (MPI_Alloc_mem(size * (1 + data_size + key_size), MPI_INFO_NULL, */
-  /*                   &mem_alloc) != 0) */
-  /*   return NULL; */
-
-  /* // since MPI_Alloc_mem doesn't provide memory allocation with the memory
-   * set */
-  /* // to zero, we're doing this here */
-  /* memset(mem_alloc, '\0', size * (1 + data_size + key_size)); */
-
-  /* // create windows on previously allocated memory */
-  /* if (MPI_Win_create(mem_alloc, size * (1 + data_size + key_size), */
-  /*                    (1 + data_size + key_size), MPI_INFO_NULL, comm, */
-  /*                    &window) != 0) */
-  /*   return NULL; */
 
   // fill dht-object
   object->ucx_h->offset =

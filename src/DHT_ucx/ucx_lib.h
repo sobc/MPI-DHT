@@ -2,6 +2,7 @@
 #define UCX_LIB_H_
 
 #include "DHT_ucx/DHT.h"
+#include "DHT_ucx/UCX_init.h"
 #include "dht_macros.h"
 
 #include <stdint.h>
@@ -16,15 +17,18 @@
 #define CHECK_NO_WAIT 0
 #define CHECK_WAIT 1
 
-ucs_status_t ucx_initContext(ucp_context_h *context);
+ucs_status_t ucx_init_endpoints(ucx_handle_t *ucx_h, ucx_worker_addr_bcast func_bcast, void *func_args);
 
-ucs_status_t ucx_initWorker(ucp_context_h context, ucp_worker_h *worker,
-                            ucp_address_t **local_address,
-                            uint64_t *local_addr_len);
+ucs_status_t ucx_init_remote_memory(ucx_handle_t *ucx_h);
+/* ucs_status_t ucx_initContext(ucp_context_h *context); */
 
-ucs_status_t ucx_createEndpoints(ucp_worker_h worker, ucp_address_t *local_addr,
-                                 uint64_t local_addr_len, ucp_ep_h **ep_list,
-                                 void *func_args);
+/* ucs_status_t ucx_initWorker(ucp_context_h context, ucp_worker_h *worker, */
+/*                             ucp_address_t **local_address, */
+/*                             uint64_t *local_addr_len); */
+
+/* ucs_status_t ucx_createEndpoints(ucp_worker_h worker, ucp_address_t *local_addr, */
+/*                                  uint64_t local_addr_len, ucp_ep_h **ep_list, */
+/*                                  void *func_args); */
 
 ucs_status_t ucx_createMemory(ucp_context_h context, uint64_t size,
                               ucp_mem_h *mem_h, uint64_t *local_mem);
