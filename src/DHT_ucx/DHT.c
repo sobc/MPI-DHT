@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-15 16:21:56 mluebke"
+/// Time-stamp: "Last modified 2023-11-17 09:12:08 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -189,7 +189,7 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   return object;
 }
 
-int DHT_fence(DHT *table) { return ucx_barrier(table->ucx_h); }
+int DHT_barrier(DHT *table) { return ucx_barrier(table->ucx_h); }
 
 /* void DHT_set_accumulate_callback(DHT *table, */
 /*                                  int (*callback_func)(int, void *, int, */

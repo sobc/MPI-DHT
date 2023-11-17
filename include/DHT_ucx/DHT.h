@@ -318,6 +318,6 @@ extern int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter,
  */
 extern int DHT_print_statistics(DHT *table);
 
-extern int DHT_fence(DHT *table);
+extern int DHT_barrier(DHT *table);
 
 #endif /* DHT_H */
