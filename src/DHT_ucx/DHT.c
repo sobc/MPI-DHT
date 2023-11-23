@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-11-17 11:13:10 mluebke"
+/// Time-stamp: "Last modified 2023-11-21 14:13:00 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -104,16 +104,8 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   status = ucx_init_endpoints(object->ucx_h, ucx_worker_bcast_mpi, &mpi_ex);
   CHK_UNLIKELY_RETURN(status != UCS_OK, "creating ucx context", NULL);
 
-  status =
-      ucx_createMemory(object->ucx_h->ucp_context, size_of_dht,
-                       &object->ucx_h->mem_h, &object->ucx_h->local_mem_addr);
-  CHK_UNLIKELY_RETURN(status != UCS_OK, "creating memory", NULL);
-
-  object->ucx_h->comm_size = comm_size;
-  object->ucx_h->self_rank = rank;
-
-  status = ucx_exchangeRKeys(object->ucx_h);
-  CHK_UNLIKELY_RETURN(status != UCS_OK, "exchange Rkeys", NULL);
+  status = ucx_init_remote_memory(object->ucx_h, size_of_dht);
+  CHK_UNLIKELY_RETURN(status != UCS_OK, "allocating and pinning memory", NULL);
 
   status = ucx_barrier(object->ucx_h);
   CHK_UNLIKELY_RETURN(status != UCS_OK, "barrier", NULL);

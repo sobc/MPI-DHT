@@ -114,6 +114,9 @@ ucs_status_t ucx_init_endpoints(ucx_handle_t *ucx_h,
     return status;
   }
 
+  ucx_h->comm_size = ep_info.comm_size;
+  ucx_h->self_rank = ep_info.self_rank;
+
   ucp_worker_release_address(ucx_h->ucp_worker, local_address);
   ucx_free_ep_info(&ep_info);
 
