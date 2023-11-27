@@ -30,20 +30,23 @@ void ucx_releaseEndpoints(ucx_handle_t *ucx_h);
 void ucx_finalize(ucx_handle_t *ucx_h);
 
 ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ctx_h, uint64_t index,
-                                    int rank);
+                                    int rank, uint8_t lock_displacement);
 
-ucs_status_ptr_t *ucx_put_data(const ucx_handle_t *ucx_h, int rank,
-                               uint64_t index, uint64_t count,
-                               const void *buffer);
+ucs_status_ptr_t *ucx_put_nonblocking(const ucx_handle_t *ucx_h, int rank,
+                                      uint64_t index, uint32_t displacement,
+                                      uint64_t count, const void *buffer);
 
-ucs_status_ptr_t *ucx_get_data(const ucx_handle_t *ucx_h, int rank,
-                               uint64_t index, uint64_t count, void *buffer);
+ucs_status_ptr_t *ucx_get_nonblocking(const ucx_handle_t *ucx_h, int rank,
+                                      uint64_t index, uint32_t displacement,
+                                      uint64_t count, void *buffer);
 
-ucs_status_t ucx_put(const ucx_handle_t *ucx_h, int rank, uint64_t index,
-                     const void *buffer, uint64_t count);
+ucs_status_t ucx_put_blocking(const ucx_handle_t *ucx_h, int rank,
+                              uint64_t index, uint32_t displacement,
+                              const void *buffer, uint64_t count);
 
-ucs_status_t ucx_get(const ucx_handle_t *ucx_h, int rank, uint64_t index,
-                     void *buffer, uint64_t count);
+ucs_status_t ucx_get_blocking(const ucx_handle_t *ucx_h, int rank,
+                              uint64_t index, uint32_t displacement,
+                              void *buffer, uint64_t count);
 
 ucs_status_t ucx_check_and_wait_completion(const ucx_handle_t *ucx_h,
                                            ucs_status_ptr_t *request, int imm);

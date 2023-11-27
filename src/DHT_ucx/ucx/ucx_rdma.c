@@ -9,13 +9,71 @@
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
 
+const ucp_request_param_t putget_param = {.op_attr_mask =
+                                              UCP_OP_ATTR_FIELD_DATATYPE,
+                                          .datatype = ucp_dt_make_contig(1)};
+
+ucs_status_ptr_t *ucx_put_nonblocking(const ucx_handle_t *ucx_h, int rank,
+                                      uint64_t index, uint32_t displacement,
+                                      uint64_t count, const void *buffer) {
+  const uint64_t remote_address =
+      ucx_h->remote_addr[rank] + (ucx_h->offset * index) + displacement;
+
+  return ucp_put_nbx(ucx_h->ep_list[rank], buffer, count, remote_address,
+                     ucx_h->rkey_handles[rank], &putget_param);
+}
+
+ucs_status_ptr_t *ucx_get_nonblocking(const ucx_handle_t *ucx_h, int rank,
+                                      uint64_t index, uint32_t displacement,
+                                      uint64_t count, void *buffer) {
+  const uint64_t remote_address =
+      ucx_h->remote_addr[rank] + (ucx_h->offset * index) + displacement;
+
+  return ucp_get_nbx(ucx_h->ep_list[rank], buffer, count, remote_address,
+                     ucx_h->rkey_handles[rank], &putget_param);
+}
+
+ucs_status_t ucx_put_blocking(const ucx_handle_t *ucx_h, int rank,
+                              uint64_t index, uint32_t displacement,
+                              const void *buffer, uint64_t count) {
+  ucs_status_ptr_t req =
+      ucx_put_nonblocking(ucx_h, rank, index, displacement, count, buffer);
+
+  ucs_status_t status;
+
+  status = ucx_check_and_wait_completion(ucx_h, req, CHECK_NO_WAIT);
+
+  if (UCS_OK != status) {
+    return status;
+  }
+
+  return ucx_flush_ep(ucx_h, rank);
+}
+
+ucs_status_t ucx_get_blocking(const ucx_handle_t *ucx_h, int rank,
+                              uint64_t index, uint32_t displacement,
+                              void *buffer, uint64_t count) {
+  ucs_status_ptr_t req =
+      ucx_get_nonblocking(ucx_h, rank, index, displacement, count, buffer);
+
+  ucs_status_t status;
+
+  status = ucx_check_and_wait_completion(ucx_h, req, CHECK_NO_WAIT);
+
+  if (UCS_OK != status) {
+    return status;
+  }
+
+  return ucx_flush_ep(ucx_h, rank);
+}
+
 ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ctx_h, uint64_t index,
-                                    int rank) {
+                                    int rank, uint8_t lock_displacement) {
   const uint32_t unacquired = BUCKET_UNLOCK;
   uint32_t cswap_val;
 
   ctx_h->lock_h.lock_rem_addr =
-      ctx_h->remote_addr[rank] + (ctx_h->offset * index);
+      ctx_h->remote_addr[rank] + (ctx_h->offset * index) + lock_displacement;
 
   ctx_h->lock_h.rank = rank;
 
@@ -46,61 +104,6 @@ ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ctx_h, uint64_t index,
   } while (cswap_val != BUCKET_LOCK);
 
   return UCS_OK;
-}
-
-ucs_status_ptr_t *ucx_put_data(const ucx_handle_t *ucx_h, int rank,
-                               uint64_t index, uint64_t count,
-                               const void *buffer) {
-  ucp_request_param_t put_param;
-  put_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
-  put_param.datatype = ucp_dt_make_contig(1);
-
-  return ucp_put_nbx(ucx_h->ep_list[rank], buffer, count,
-                     ucx_h->remote_addr[rank] + (ucx_h->offset * index) +
-                         ucx_h->lock_size + ucx_h->flag_padding,
-                     ucx_h->rkey_handles[rank], &put_param);
-}
-
-ucs_status_ptr_t *ucx_get_data(const ucx_handle_t *ucx_h, int rank,
-                               uint64_t index, uint64_t count, void *buffer) {
-  ucp_request_param_t get_param;
-  get_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
-  get_param.datatype = ucp_dt_make_contig(1);
-
-  return ucp_get_nbx(ucx_h->ep_list[rank], buffer, count,
-                     ucx_h->remote_addr[rank] + (ucx_h->offset * index) +
-                         ucx_h->lock_size + ucx_h->flag_padding,
-                     ucx_h->rkey_handles[rank], &get_param);
-}
-
-ucs_status_t ucx_put(const ucx_handle_t *ucx_h, int rank, uint64_t index,
-                     const void *buffer, uint64_t count) {
-  ucs_status_ptr_t req = ucx_put_data(ucx_h, rank, index, count, buffer);
-
-  ucs_status_t status;
-
-  status = ucx_check_and_wait_completion(ucx_h, req, CHECK_NO_WAIT);
-
-  if (UCS_OK != status) {
-    return status;
-  }
-
-  return ucx_flush_ep(ucx_h, rank);
-}
-
-ucs_status_t ucx_get(const ucx_handle_t *ucx_h, int rank, uint64_t index,
-                     void *buffer, uint64_t count) {
-  ucs_status_ptr_t req = ucx_get_data(ucx_h, rank, index, count, buffer);
-
-  ucs_status_t status;
-
-  status = ucx_check_and_wait_completion(ucx_h, req, CHECK_NO_WAIT);
-
-  if (UCS_OK != status) {
-    return status;
-  }
-
-  return ucx_flush_ep(ucx_h, rank);
 }
 
 ucs_status_t ucx_write_release_lock(const ucx_handle_t *ucx_h) {

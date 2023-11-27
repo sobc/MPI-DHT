@@ -22,6 +22,7 @@
 #include <inttypes.h>
 #include <math.h>
 #include <setjmp.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -114,6 +115,7 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   //     data_size + key_size + (sizeof(uint32_t) * 2) + 1 + padding;
   // object->ucx_h->flag_padding = padding;
   // object->ucx_h->lock_size = sizeof(uint32_t);
+  object->lock_displ = 0;
   object->data_size = data_size;
   object->key_size = key_size;
   object->table_size = size;
@@ -283,9 +285,10 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   ucs_status_t status;
 
   for (i = 0; i < table->index_count; i++) {
-    status =
-        ucx_get(table->ucx_h, dest_rank, table->index[i], table->recv_entry,
-                table->data_size + table->key_size + 1 + sizeof(uint32_t));
+    status = ucx_get_blocking(
+        table->ucx_h, dest_rank, table->index[i],
+        sizeof(uint32_t) + table->ucx_h->flag_padding, table->recv_entry,
+        table->data_size + table->key_size + 1 + sizeof(uint32_t));
 
     if (status != UCS_OK) {
       return DHT_MPI_ERROR;
@@ -314,14 +317,16 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   }
 
 #ifdef DHT_WITH_LOCKING
-  if (UCS_OK !=
-      ucx_write_acquire_lock(table->ucx_h, table->index[i], dest_rank)) {
+  if (UCS_OK != ucx_write_acquire_lock(table->ucx_h, table->index[i], dest_rank,
+                                       table->lock_displ)) {
     return DHT_MPI_ERROR;
   };
 #endif
 
-  status = ucx_put(table->ucx_h, dest_rank, table->index[i], table->send_entry,
-                   table->data_size + table->key_size + sizeof(uint32_t) + 1);
+  status = ucx_put_blocking(
+      table->ucx_h, dest_rank, table->index[i],
+      sizeof(uint32_t) + table->ucx_h->flag_padding, table->send_entry,
+      table->data_size + table->key_size + sizeof(uint32_t) + 1);
 
   if (status != UCS_OK) {
     return DHT_MPI_ERROR;
@@ -362,9 +367,10 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
   ucs_status_t status;
 
   for (i = 0; i < table->index_count; i++) {
-    status =
-        ucx_get(table->ucx_h, dest_rank, table->index[i], table->recv_entry,
-                table->data_size + table->key_size + 1 + sizeof(uint32_t));
+    status = ucx_get_blocking(
+        table->ucx_h, dest_rank, table->index[i],
+        sizeof(uint32_t) + table->ucx_h->flag_padding, table->recv_entry,
+        table->data_size + table->key_size + 1 + sizeof(uint32_t));
 
     if (status != UCS_OK) {
       return DHT_MPI_ERROR;
@@ -405,8 +411,9 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
         }
 
         const char invalidate = *(buffer_begin) | BUCKET_INVALID;
-        status = ucx_put(table->ucx_h, dest_rank, table->index[i], &invalidate,
-                         sizeof(char));
+        status = ucx_put_blocking(table->ucx_h, dest_rank, table->index[i],
+                                  table->ucx_h->flag_padding + sizeof(uint32_t),
+                                  &invalidate, sizeof(char));
         if (status != UCS_OK) {
           return DHT_MPI_ERROR;
         }

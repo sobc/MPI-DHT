@@ -34,6 +34,7 @@
 #include <mpi.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <sys/types.h>
 #include <ucp/api/ucp_def.h>
 
 /** Returned if some error in MPI routine occurs. */
@@ -118,6 +119,7 @@ typedef struct MPI_exchange_t {
  */
 typedef struct {
   ucx_handle_t *ucx_h;
+  uint8_t lock_displ;
   /** Size of the data of a bucket entry in byte. */
   int data_size;
   /** Size of the key of a bucket entry in byte. */

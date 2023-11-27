@@ -108,7 +108,7 @@ static ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h) {
   ucs_status_t status;
 
   for (int i = 0; i < ucx_h->comm_size; i++) {
-    status = ucx_get(ucx_h, i, 0, &data, sizeof(data));
+    status = ucx_get_blocking(ucx_h, i, 0, 0, &data, sizeof(data));
     if (UCS_OK != status) {
       return status;
     }
