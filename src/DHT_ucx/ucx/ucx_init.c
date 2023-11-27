@@ -1,5 +1,6 @@
 #include "DHT_ucx/UCX_init.h"
-#include "dht_macros.h"
+#include "../dht_macros.h"
+#include "DHT_ucx/DHT.h"
 #include "ucx_lib.h"
 
 #include <stdint.h>
@@ -83,35 +84,42 @@ static inline ucs_status_t ucx_createEndpoints(ucp_worker_h worker,
   return UCS_OK;
 }
 
-ucs_status_t ucx_init_endpoints(ucx_handle_t *ucx_h,
-                                ucx_worker_addr_bcast func_bcast,
-                                void *func_args) {
+ucx_handle_t *ucx_init(ucx_worker_addr_bcast func_bcast, void *func_args,
+                       int *func_ret) {
   ucs_status_t status;
   ucp_address_t *local_address;
   uint64_t local_address_len;
   ucx_ep_info_t ep_info;
-  int bcast_status;
+
+  ucx_handle_t *ucx_h;
+
+  *func_ret = UCX_BCAST_NOT_RUN;
+
+  ucx_h = malloc(sizeof(ucx_handle_t));
+  if (unlikely(ucx_h == NULL)) {
+    return NULL;
+  }
 
   status = ucx_initContext(&ucx_h->ucp_context);
   if (unlikely(status != UCS_OK)) {
-    return status;
+    return NULL;
   }
 
   status = ucx_initWorker(ucx_h->ucp_context, &ucx_h->ucp_worker,
                           &local_address, &local_address_len);
   if (unlikely(status != UCS_OK)) {
-    return status;
+    return NULL;
   }
 
-  bcast_status =
+  *func_ret =
       (*func_bcast)(local_address, local_address_len, func_args, &ep_info);
-  if (unlikely(bcast_status != UCX_BCAST_OK)) {
-    return UCS_ERR_NO_DEVICE;
+  if (unlikely(*func_ret != UCX_BCAST_OK)) {
+    return NULL;
   }
 
   status = ucx_createEndpoints(ucx_h->ucp_worker, &ep_info, &ucx_h->ep_list);
   if (unlikely(status != UCS_OK)) {
-    return status;
+    return NULL;
   }
 
   ucx_h->comm_size = ep_info.comm_size;
@@ -120,5 +128,5 @@ ucs_status_t ucx_init_endpoints(ucx_handle_t *ucx_h,
   ucp_worker_release_address(ucx_h->ucp_worker, local_address);
   ucx_free_ep_info(&ep_info);
 
-  return UCS_OK;
+  return ucx_h;
 }

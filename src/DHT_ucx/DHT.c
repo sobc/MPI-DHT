@@ -34,7 +34,7 @@
 
 #include "DHT_ucx/UCX_init.h"
 #include "dht_macros.h"
-#include "ucx_lib.h"
+#include "ucx/ucx_lib.h"
 
 #define CROP_HASH(hash) (uint32_t) hash
 
@@ -65,16 +65,16 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   ucs_status_t status;
 
   const uint64_t bucket_size = 2 * sizeof(uint32_t) + data_size + key_size + 1;
-#ifdef DHT_WITH_LOCKING
-  uint8_t padding = bucket_size % sizeof(uint32_t);
-  if (!!padding) {
-    padding = sizeof(uint32_t) - padding;
-  }
-#else
-  uint8_t padding = 0;
-#endif
+  // #ifdef DHT_WITH_LOCKING
+  //   uint8_t padding = bucket_size % sizeof(uint32_t);
+  //   if (!!padding) {
+  //     padding = sizeof(uint32_t) - padding;
+  //   }
+  // #else
+  //   uint8_t padding = 0;
+  // #endif
 
-  uint64_t size_of_dht = size * (bucket_size + padding);
+  // const uint64_t size_of_dht = size * bucket_size;
 
   if (MPI_Comm_size(comm, &comm_size) != 0) {
     return NULL;
@@ -98,29 +98,26 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   object = (DHT *)malloc(sizeof(DHT));
   CHK_UNLIKELY_RETURN(object == NULL, "allocating DHT object", NULL);
 
-  object->ucx_h = (ucx_handle_t *)malloc(sizeof(ucx_handle_t));
-  CHK_UNLIKELY_RETURN(object->ucx_h == NULL, "allocating ucx handle", NULL);
+  int bcast_func_ret;
 
-  status = ucx_init_endpoints(object->ucx_h, ucx_worker_bcast_mpi, &mpi_ex);
-  CHK_UNLIKELY_RETURN(status != UCS_OK, "creating ucx context", NULL);
+  object->ucx_h = ucx_init(ucx_worker_bcast_mpi, &mpi_ex, &bcast_func_ret);
 
-  status = ucx_init_remote_memory(object->ucx_h, size_of_dht);
+  CHK_UNLIKELY_RETURN((bcast_func_ret != UCX_BCAST_OK) ||
+                          (object->ucx_h == NULL),
+                      "creating ucx context", NULL);
+
+  status = ucx_init_remote_memory(object->ucx_h, bucket_size, size);
   CHK_UNLIKELY_RETURN(status != UCS_OK, "allocating and pinning memory", NULL);
 
-  status = ucx_barrier(object->ucx_h);
-  CHK_UNLIKELY_RETURN(status != UCS_OK, "barrier", NULL);
-
   // fill dht-object
-  object->ucx_h->offset =
-      data_size + key_size + (sizeof(uint32_t) * 2) + 1 + padding;
-  object->ucx_h->flag_padding = padding;
-  object->ucx_h->lock_size = sizeof(uint32_t);
+  // object->ucx_h->offset =
+  //     data_size + key_size + (sizeof(uint32_t) * 2) + 1 + padding;
+  // object->ucx_h->flag_padding = padding;
+  // object->ucx_h->lock_size = sizeof(uint32_t);
   object->data_size = data_size;
   object->key_size = key_size;
   object->table_size = size;
   object->hash_func = hash_func;
-  object->comm_size = comm_size;
-  object->communicator = comm;
   object->read_misses = 0;
   object->evictions = 0;
   object->chksum_retries = 0;
@@ -145,10 +142,6 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   object->stats->w_access = 0;
   object->stats->r_access = 0;
 #endif
-
-  if (UCS_OK != ucx_initPostRecv(object->ucx_h, object->comm_size)) {
-    return NULL;
-  }
 
   return object;
 }
@@ -271,7 +264,7 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
 #endif
 
   // determine destination rank and index by hash of key
-  determine_dest(hash, table->comm_size, table->table_size, &dest_rank,
+  determine_dest(hash, table->ucx_h->comm_size, table->table_size, &dest_rank,
                  table->index, table->index_count);
 
   // concatenating key with data to write entry to DHT
@@ -363,7 +356,7 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
 #endif
 
   // determine destination rank and index by hash of key
-  determine_dest(hash, table->comm_size, table->table_size, &dest_rank,
+  determine_dest(hash, table->ucx_h->comm_size, table->table_size, &dest_rank,
                  table->index, table->index_count);
 
   ucs_status_t status;
@@ -508,85 +501,86 @@ int DHT_to_file(DHT *table, const char *filename) {
   /* return DHT_SUCCESS; */
 }
 
-int DHT_from_file(DHT *table, const char *filename) {
-  MPI_File file;
-  MPI_Offset f_size;
-  int bucket_size, buffer_size, cur_pos, rank, offset;
-  char *buffer;
-  void *key;
-  void *data;
+// int DHT_from_file(DHT *table, const char *filename) {
+//   MPI_File file;
+//   MPI_Offset f_size;
+//   int bucket_size, buffer_size, cur_pos, rank, offset;
+//   char *buffer;
+//   void *key;
+//   void *data;
 
-  // open file
-  if (MPI_File_open(table->communicator, filename, MPI_MODE_RDONLY,
-                    MPI_INFO_NULL, &file) != 0)
-    return DHT_FILE_IO_ERROR;
+//   // open file
+//   if (MPI_File_open(table->communicator, filename, MPI_MODE_RDONLY,
+//                     MPI_INFO_NULL, &file) != 0)
+//     return DHT_FILE_IO_ERROR;
 
-  // get file size
-  if (MPI_File_get_size(file, &f_size) != 0)
-    return DHT_FILE_IO_ERROR;
+//   // get file size
+//   if (MPI_File_get_size(file, &f_size) != 0)
+//     return DHT_FILE_IO_ERROR;
 
-  MPI_Comm_rank(table->communicator, &rank);
+//   MPI_Comm_rank(table->communicator, &rank);
 
-  // calculate bucket size
-  bucket_size = table->key_size + table->data_size;
-  // buffer size is either bucket size or, if bucket size is smaller than the
-  // file header, the size of DHT_FILEHEADER_SIZE
-  buffer_size =
-      bucket_size > DHT_FILEHEADER_SIZE ? bucket_size : DHT_FILEHEADER_SIZE;
-  // allocate buffer
-  buffer = (char *)malloc(buffer_size);
+//   // calculate bucket size
+//   bucket_size = table->key_size + table->data_size;
+//   // buffer size is either bucket size or, if bucket size is smaller than the
+//   // file header, the size of DHT_FILEHEADER_SIZE
+//   buffer_size =
+//       bucket_size > DHT_FILEHEADER_SIZE ? bucket_size : DHT_FILEHEADER_SIZE;
+//   // allocate buffer
+//   buffer = (char *)malloc(buffer_size);
 
-  // read file header
-  if (MPI_File_read(file, buffer, DHT_FILEHEADER_SIZE, MPI_BYTE,
-                    MPI_STATUS_IGNORE) != 0)
-    return DHT_FILE_READ_ERROR;
+//   // read file header
+//   if (MPI_File_read(file, buffer, DHT_FILEHEADER_SIZE, MPI_BYTE,
+//                     MPI_STATUS_IGNORE) != 0)
+//     return DHT_FILE_READ_ERROR;
 
-  // compare if written header data and key size matches current sizes
-  if (*(int *)buffer != table->key_size)
-    return DHT_WRONG_FILE;
-  if (*(int *)(buffer + 4) != table->data_size)
-    return DHT_WRONG_FILE;
+//   // compare if written header data and key size matches current sizes
+//   if (*(int *)buffer != table->key_size)
+//     return DHT_WRONG_FILE;
+//   if (*(int *)(buffer + 4) != table->data_size)
+//     return DHT_WRONG_FILE;
 
-  // set offset for each process
-  offset = bucket_size * table->comm_size;
+//   // set offset for each process
+//   offset = bucket_size * table->comm_size;
 
-  // seek behind header of DHT file
-  if (MPI_File_seek(file, DHT_FILEHEADER_SIZE, MPI_SEEK_SET) != 0)
-    return DHT_FILE_IO_ERROR;
+//   // seek behind header of DHT file
+//   if (MPI_File_seek(file, DHT_FILEHEADER_SIZE, MPI_SEEK_SET) != 0)
+//     return DHT_FILE_IO_ERROR;
 
-  // current position is rank * bucket_size + OFFSET
-  cur_pos = DHT_FILEHEADER_SIZE + (rank * bucket_size);
+//   // current position is rank * bucket_size + OFFSET
+//   cur_pos = DHT_FILEHEADER_SIZE + (rank * bucket_size);
 
-  // loop over file and write data to DHT with DHT_write
-  while (cur_pos < f_size) {
-    if (MPI_File_seek(file, cur_pos, MPI_SEEK_SET) != 0)
-      return DHT_FILE_IO_ERROR;
-    // TODO: really necessary?
-    MPI_Offset tmp;
-    MPI_File_get_position(file, &tmp);
-    if (MPI_File_read(file, buffer, bucket_size, MPI_BYTE, MPI_STATUS_IGNORE) !=
-        0)
-      return DHT_FILE_READ_ERROR;
-    // extract key and data and write to DHT
-    key = buffer;
-    data = (buffer + table->key_size);
-    if (DHT_write(table, key, data, NULL, NULL) == DHT_MPI_ERROR)
-      return DHT_MPI_ERROR;
+//   // loop over file and write data to DHT with DHT_write
+//   while (cur_pos < f_size) {
+//     if (MPI_File_seek(file, cur_pos, MPI_SEEK_SET) != 0)
+//       return DHT_FILE_IO_ERROR;
+//     // TODO: really necessary?
+//     MPI_Offset tmp;
+//     MPI_File_get_position(file, &tmp);
+//     if (MPI_File_read(file, buffer, bucket_size, MPI_BYTE, MPI_STATUS_IGNORE)
+//     !=
+//         0)
+//       return DHT_FILE_READ_ERROR;
+//     // extract key and data and write to DHT
+//     key = buffer;
+//     data = (buffer + table->key_size);
+//     if (DHT_write(table, key, data, NULL, NULL) == DHT_MPI_ERROR)
+//       return DHT_MPI_ERROR;
 
-    // increment current position
-    cur_pos += offset;
-  }
+//     // increment current position
+//     cur_pos += offset;
+//   }
 
-  free(buffer);
-  if (MPI_File_close(&file) != 0)
-    return DHT_FILE_IO_ERROR;
+//   free(buffer);
+//   if (MPI_File_close(&file) != 0)
+//     return DHT_FILE_IO_ERROR;
 
-  return DHT_SUCCESS;
-}
+//   return DHT_SUCCESS;
+// }
 
-int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter,
-             uint32_t *chksum_retries) {
-  uint32_t buf;
+int DHT_free(DHT *table, uint64_t *eviction_counter,
+             uint64_t *readerror_counter, uint64_t *chksum_retries) {
+  int64_t buf;
 
   ucs_status_t status;
 
@@ -597,43 +591,33 @@ int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter,
   }
 
   if (eviction_counter != NULL) {
-    buf = 0;
-    if (MPI_Reduce(&table->evictions, &buf, 1, MPI_INT, MPI_SUM, 0,
-                   table->communicator) != 0)
+    buf = table->evictions;
+    if (UCS_OK != ucx_reduce_sum(table->ucx_h, &buf, 0)) {
       return DHT_MPI_ERROR;
+    }
     *eviction_counter = buf;
   }
   if (readerror_counter != NULL) {
-    buf = 0;
-    if (MPI_Reduce(&table->read_misses, &buf, 1, MPI_INT, MPI_SUM, 0,
-                   table->communicator) != 0)
+    buf = table->read_misses;
+    if (UCS_OK != ucx_reduce_sum(table->ucx_h, &buf, 0)) {
       return DHT_MPI_ERROR;
+    }
     *readerror_counter = buf;
   }
   if (chksum_retries != NULL) {
-    buf = 0;
-    if (MPI_Reduce(&table->chksum_retries, &buf, 1, MPI_UINT32_T, MPI_SUM, 0,
-                   table->communicator) != 0) {
+    buf = table->chksum_retries;
+    if (UCS_OK != ucx_reduce_sum(table->ucx_h, &buf, 0)) {
       return DHT_MPI_ERROR;
     }
     *chksum_retries = buf;
   }
-  ucx_releaseRKeys(table->ucx_h->rkey_handles, table->ucx_h->rkey_buffer,
-                   table->ucx_h->remote_addr, table->comm_size);
-  status =
-      ucx_releaseLocalMemory(table->ucx_h->ucp_context, table->ucx_h->mem_h);
-  if (unlikely(status != UCS_OK)) {
-    return status;
-  }
-  status = ucx_releaseEndpoints(table->ucx_h->ep_list, table->comm_size,
-                                table->ucx_h->ucp_worker);
+  status = ucx_free_mem(table->ucx_h);
   if (unlikely(status != UCS_OK)) {
     return status;
   }
 
-  ucx_cleanup(table->ucx_h->ucp_context, table->ucx_h->ucp_worker);
-
-  free(table->ucx_h);
+  ucx_releaseEndpoints(table->ucx_h);
+  ucx_finalize(table->ucx_h);
 
   free(table->recv_entry);
   free(table->send_entry);

@@ -124,10 +124,6 @@ typedef struct {
   int key_size;
   /** Count of buckets for each process. */
   unsigned int table_size;
-  /** MPI communicator of all participating processes. */
-  MPI_Comm communicator;
-  /** Size of the MPI communicator respectively all participating processes. */
-  int comm_size;
   /** Pointer to a hashfunction. */
   uint64_t (*hash_func)(int, const void *);
   /** Pre-allocated memory where a bucket can be received. */
@@ -289,8 +285,8 @@ extern int DHT_from_file(DHT *table, const char *filename);
  * @return int Returns either DHT_SUCCESS on success or DHT_MPI_ERROR on
  * internal MPI error.
  */
-extern int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter,
-                    uint32_t *chksum_retries);
+extern int DHT_free(DHT *table, uint64_t *eviction_counter,
+                    uint64_t *readerror_counter, uint64_t *chksum_retries);
 
 /**
  * @brief Prints a table with statistics about current use of DHT.

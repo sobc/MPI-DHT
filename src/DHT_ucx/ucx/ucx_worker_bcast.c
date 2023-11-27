@@ -1,4 +1,4 @@
-#include "dht_macros.h"
+#include "../dht_macros.h"
 #include "ucx_lib.h"
 
 #include <DHT_ucx/UCX_init.h>

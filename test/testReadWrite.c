@@ -1,4 +1,5 @@
 #include <DHT_ucx/DHT.h>
+#include <inttypes.h>
 #include <mpi.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -41,7 +42,7 @@ int main(int argc, char **argv) {
 
   status = DHT_write(object, &key, &data, NULL, NULL);
 
-  if (DHT_SUCCESS != status) {
+  if (DHT_MPI_ERROR == status) {
     fprintf(stderr, "Error during write. Aborting ...\n");
     MPI_Abort(MPI_COMM_WORLD, status);
   }
@@ -64,10 +65,17 @@ int main(int argc, char **argv) {
     fprintf(stdout, "Rank %d: OK!\n", rank);
   }
 
-  status = DHT_free(object, NULL, NULL, NULL);
+  uint64_t read, evic, checksum;
+  status = DHT_free(object, &evic, &read, &checksum);
   if (DHT_SUCCESS != status) {
     fprintf(stderr, "Error during free. Aborting ...\n");
     MPI_Abort(MPI_COMM_WORLD, status);
+  }
+
+  if (rank == 0) {
+    printf("\nEvicted: %" PRIu64 "\nRead: %" PRIu64 "\nChecksum: %" PRIu64
+           "\n\n",
+           evic, read, checksum);
   }
 
   MPI_Finalize();

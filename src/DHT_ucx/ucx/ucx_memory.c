@@ -1,4 +1,4 @@
-#include "dht_macros.h"
+#include "../dht_macros.h"
 #include "ucx_lib.h"
 
 #include <inttypes.h>
@@ -31,7 +31,6 @@ static ucs_status_t ucx_createMemory(ucp_context_h context, uint64_t size,
   CHK_UNLIKELY_RETURN(status != UCS_OK, "Query memory handle", status);
 
   memset(mem_attr.address, '\0', size);
-
   *local_mem = (uint64_t)mem_attr.address;
 
   return UCS_OK;
@@ -104,8 +103,40 @@ static ucs_status_t ucx_exchangeRKeys(ucx_handle_t *ucx_h) {
   return UCS_OK;
 }
 
-ucs_status_t ucx_init_remote_memory(ucx_handle_t *ucx_h, uint64_t mem_size) {
+static ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h) {
+  uint32_t data;
   ucs_status_t status;
+
+  for (int i = 0; i < ucx_h->comm_size; i++) {
+    status = ucx_get(ucx_h, i, 0, &data, sizeof(data));
+    if (UCS_OK != status) {
+      return status;
+    }
+  }
+
+  return UCS_OK;
+}
+
+ucs_status_t ucx_init_remote_memory(ucx_handle_t *ucx_h, uint64_t bucket_size,
+                                    uint64_t count) {
+  ucs_status_t status;
+
+#ifdef DHT_WITH_LOCKING
+  uint8_t padding = bucket_size % sizeof(uint32_t);
+  if (!!padding) {
+    padding = sizeof(uint32_t) - padding;
+  }
+#else
+  uint8_t padding = 0;
+#endif
+
+  bucket_size += padding;
+
+  uint64_t mem_size = count * bucket_size;
+
+  ucx_h->offset = bucket_size;
+  ucx_h->flag_padding = padding;
+  ucx_h->lock_size = sizeof(uint32_t);
 
   status = ucx_createMemory(ucx_h->ucp_context, mem_size, &ucx_h->mem_h,
                             &ucx_h->local_mem_addr);
@@ -114,6 +145,16 @@ ucs_status_t ucx_init_remote_memory(ucx_handle_t *ucx_h, uint64_t mem_size) {
   }
 
   status = ucx_exchangeRKeys(ucx_h);
+  if (unlikely(status != UCS_OK)) {
+    return status;
+  }
+
+  status = ucx_barrier(ucx_h);
+  if (unlikely(status != UCS_OK)) {
+    return status;
+  }
+
+  status = ucx_initPostRecv(ucx_h);
   if (unlikely(status != UCS_OK)) {
     return status;
   }

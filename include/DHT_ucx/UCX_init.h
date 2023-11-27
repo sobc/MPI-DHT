@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <ucp/api/ucp_def.h>
 
+#define UCX_BCAST_NOT_RUN -1
 #define UCX_BCAST_OK 0
 #define UCX_BCAST_ERR 1
 

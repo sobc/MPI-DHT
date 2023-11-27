@@ -1,9 +1,9 @@
 #ifndef UCX_LIB_H_
 #define UCX_LIB_H_
 
+#include "../dht_macros.h"
 #include "DHT_ucx/DHT.h"
 #include "DHT_ucx/UCX_init.h"
-#include "dht_macros.h"
 
 #include <stdint.h>
 #include <ucp/api/ucp_def.h>
@@ -17,24 +17,17 @@
 #define CHECK_NO_WAIT 0
 #define CHECK_WAIT 1
 
-ucs_status_t ucx_init_endpoints(ucx_handle_t *ucx_h,
-                                ucx_worker_addr_bcast func_bcast,
-                                void *func_args);
+ucx_handle_t *ucx_init(ucx_worker_addr_bcast func_bcast, void *func_args,
+                       int *func_ret);
 
-ucs_status_t ucx_init_remote_memory(ucx_handle_t *ucx_h, uint64_t mem_size);
+ucs_status_t ucx_init_remote_memory(ucx_handle_t *ucx_h, uint64_t bucket_size,
+                                    uint64_t count);
 
-void ucx_releaseRKeys(ucp_rkey_h *rkey_handles, void **rkey_buffer,
-                      uint64_t *rem_addresses, int rkey_count);
+ucs_status_t ucx_free_mem(ucx_handle_t *ucx_h);
 
-ucs_status_t ucx_releaseEndpoints(ucp_ep_h *endpoint_handles,
-                                  int endpoint_count, ucp_worker_h worker);
+void ucx_releaseEndpoints(ucx_handle_t *ucx_h);
 
-ucs_status_t ucx_releaseLocalMemory(ucp_context_h context,
-                                    ucp_mem_h memory_handle);
-
-void ucx_finalize(ucp_context_h context, ucp_worker_h worker_handle);
-
-ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h, int size);
+void ucx_finalize(ucx_handle_t *ucx_h);
 
 ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ctx_h, uint64_t index,
                                     int rank);
@@ -57,10 +50,15 @@ ucs_status_t ucx_check_and_wait_completion(const ucx_handle_t *ucx_h,
 
 ucs_status_t ucx_flush_ep(const ucx_handle_t *ucx_h, int rank);
 
+ucs_status_t ucx_flush_worker(const ucx_handle_t *ucx_h);
+
 ucs_status_t ucx_write_release_lock(const ucx_handle_t *ucx_h);
 
 ucs_status_t ucx_broadcast(const ucx_handle_t *ucx_h, uint64_t root, void *msg,
                            uint64_t msg_size, uint32_t msg_tag);
+
+ucs_status_t ucx_reduce_sum(const ucx_handle_t *ucx_h, int64_t *buf,
+                            uint32_t root);
 
 ucs_status_t ucx_barrier(const ucx_handle_t *ucx_h);
 

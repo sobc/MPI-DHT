@@ -1,8 +1,8 @@
 option(DHT_WITH_UCX "Build DHT based on Unified Communication X" ON)
 
-file(GLOB UCX_SRC "ucx_*.c")
+file(GLOB UCX_SRC "ucx/ucx_*.c")
 add_library(ucx_communication ${UCX_SRC})
-target_link_libraries(ucx_communication PUBLIC ucx::ucp ucx::ucs)
+target_link_libraries(ucx_communication PUBLIC MPI::MPI_C ucx::ucp ucx::ucs)
 target_include_directories(ucx_communication PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
 if (DHT_WITH_UCX)
