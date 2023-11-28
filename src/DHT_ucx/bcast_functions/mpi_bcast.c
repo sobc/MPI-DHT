@@ -1,6 +1,6 @@
-#include "../dht_macros.h"
-#include "ucx_lib.h"
+#include "../macros.h"
 
+#include <DHT_ucx/UCX_bcast_functions.h>
 #include <DHT_ucx/UCX_init.h>
 #include <mpi.h>
 #include <stdint.h>
@@ -21,14 +21,15 @@ int ucx_worker_bcast_mpi(ucp_address_t *worker_addr_self,
     return UCX_BCAST_ERR;
   }
 
-  endpoint_info->worker_addr = malloc(endpoint_info->comm_size);
+  endpoint_info->worker_addr =
+      malloc(mpi_args->comm_size * sizeof(ucp_address_t *));
   if (unlikely(endpoint_info->worker_addr == NULL)) {
     return UCX_BCAST_ERR;
   }
 
   for (int i = 0; i < mpi_args->comm_size; i++) {
     endpoint_info->worker_addr[i] = malloc(addr_lengths[i]);
-    if (unlikely(endpoint_info->worker_addr == NULL)) {
+    if (unlikely(endpoint_info->worker_addr[i] == NULL)) {
       return UCX_BCAST_ERR;
     }
 

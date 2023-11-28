@@ -1,5 +1,5 @@
 #include "DHT_ucx/UCX_init.h"
-#include "../dht_macros.h"
+#include "../macros.h"
 #include "DHT_ucx/DHT.h"
 #include "ucx_lib.h"
 
@@ -82,6 +82,13 @@ static inline ucs_status_t ucx_createEndpoints(ucp_worker_h worker,
   }
 
   return UCS_OK;
+}
+
+static inline void ucx_free_ep_info(ucx_ep_info_t *ep_info) {
+  for (uint32_t i = 0; i < ep_info->comm_size; i++) {
+    free(ep_info->worker_addr[i]);
+  }
+  free(ep_info->worker_addr);
 }
 
 ucx_handle_t *ucx_init(ucx_worker_addr_bcast func_bcast, void *func_args,

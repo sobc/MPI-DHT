@@ -94,13 +94,11 @@ typedef struct ucx_handle {
   ucp_ep_h *ep_list;
   ucp_mem_h mem_h;
   uint64_t local_mem_addr;
-  uint64_t offset;
   uint64_t *remote_addr;
   void **rkey_buffer;
   ucp_rkey_h *rkey_handles;
   struct ucx_handle_lock lock_h;
   uint32_t lock_size;
-  uint8_t flag_padding;
   uint32_t comm_size;
   uint32_t self_rank;
 } ucx_handle_t;
@@ -119,13 +117,16 @@ typedef struct MPI_exchange_t {
  */
 typedef struct {
   ucx_handle_t *ucx_h;
+  uint64_t offset;
   uint8_t lock_displ;
+  uint8_t flag_padding;
+  uint8_t data_displacement;
   /** Size of the data of a bucket entry in byte. */
   int data_size;
   /** Size of the key of a bucket entry in byte. */
   int key_size;
   /** Count of buckets for each process. */
-  unsigned int table_size;
+  unsigned int bucket_count;
   /** Pointer to a hashfunction. */
   uint64_t (*hash_func)(int, const void *);
   /** Pre-allocated memory where a bucket can be received. */

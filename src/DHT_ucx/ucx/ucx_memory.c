@@ -1,4 +1,4 @@
-#include "../dht_macros.h"
+#include "../macros.h"
 #include "ucx_lib.h"
 
 #include <inttypes.h>
@@ -107,8 +107,8 @@ static ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h) {
   uint32_t data;
   ucs_status_t status;
 
-  for (int i = 0; i < ucx_h->comm_size; i++) {
-    status = ucx_get_blocking(ucx_h, i, 0, 0, &data, sizeof(data));
+  for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
+    status = ucx_get_blocking(ucx_h, i, 0, &data, sizeof(data));
     if (UCS_OK != status) {
       return status;
     }
@@ -117,26 +117,8 @@ static ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h) {
   return UCS_OK;
 }
 
-ucs_status_t ucx_init_remote_memory(ucx_handle_t *ucx_h, uint64_t bucket_size,
-                                    uint64_t count) {
+ucs_status_t ucx_init_remote_memory(ucx_handle_t *ucx_h, uint64_t mem_size) {
   ucs_status_t status;
-
-#ifdef DHT_WITH_LOCKING
-  uint8_t padding = bucket_size % sizeof(uint32_t);
-  if (!!padding) {
-    padding = sizeof(uint32_t) - padding;
-  }
-#else
-  uint8_t padding = 0;
-#endif
-
-  bucket_size += padding;
-
-  uint64_t mem_size = count * bucket_size;
-
-  ucx_h->offset = bucket_size;
-  ucx_h->flag_padding = padding;
-  ucx_h->lock_size = sizeof(uint32_t);
 
   status = ucx_createMemory(ucx_h->ucp_context, mem_size, &ucx_h->mem_h,
                             &ucx_h->local_mem_addr);

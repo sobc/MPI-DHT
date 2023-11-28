@@ -3,7 +3,7 @@
 
 #include "DHT_ucx/DHT.h"
 #include "DHT_ucx/UCX_init.h"
-#include "dht_macros.h"
+#include "macros.h"
 
 #include <stdint.h>
 #include <ucp/api/ucp_def.h>

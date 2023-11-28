@@ -33,11 +33,16 @@
 #include <ucs/type/status.h>
 #include <unistd.h>
 
+#include "DHT_ucx/UCX_bcast_functions.h"
 #include "DHT_ucx/UCX_init.h"
-#include "dht_macros.h"
+#include "macros.h"
 #include "ucx/ucx_lib.h"
 
+#define LOCK_SIZE sizeof(uint32_t)
+
 #define CROP_HASH(hash) (uint32_t) hash
+
+#define BUCKET_OFFSET(offset, i, disp) (offset * i) + disp
 
 static void determine_dest(uint64_t hash, int comm_size,
                            unsigned int table_size, unsigned int *dest_rank,
@@ -46,12 +51,35 @@ static void determine_dest(uint64_t hash, int comm_size,
   uint64_t tmp_index;
   /** how many bytes do we need for one index? */
   int index_size = sizeof(double) - (index_count - 1);
-  for (int i = 0; i < index_count; i++) {
+  for (uint32_t i = 0; i < index_count; i++) {
     tmp_index = 0;
     memcpy(&tmp_index, (char *)&hash + i, index_size);
     index[i] = (uint64_t)(tmp_index % table_size);
   }
   *dest_rank = (unsigned int)(hash % comm_size);
+}
+
+// calculate how much bytes for the index are needed to address count of
+// buckets per process
+static inline uint8_t get_index_bytes(uint64_t nbuckets) {
+  uint8_t index_bits = 0;
+  uint64_t temp_size = nbuckets;
+
+  // Calculate the logarithm base 2
+  while (temp_size > 0) {
+    temp_size >>= 1;
+    index_bits++;
+  }
+
+  // const uint8_t mod8 = index_bytes % 8;
+  // // Round up to the nearest multiple of 8
+  // if (mod8 != 0) {
+  //   index_bytes += (8 - mod8);
+  // }
+
+  const uint8_t index_bytes = (uint8_t)(index_bits / 8) + 1;
+
+  return index_bytes;
 }
 
 DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
@@ -60,22 +88,21 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   DHT *object;
 
   int comm_size;
-  int index_bytes;
   int rank;
 
   ucs_status_t status;
 
   const uint64_t bucket_size = 2 * sizeof(uint32_t) + data_size + key_size + 1;
-  // #ifdef DHT_WITH_LOCKING
-  //   uint8_t padding = bucket_size % sizeof(uint32_t);
-  //   if (!!padding) {
-  //     padding = sizeof(uint32_t) - padding;
-  //   }
-  // #else
-  //   uint8_t padding = 0;
-  // #endif
+#ifdef DHT_WITH_LOCKING
+  uint8_t padding = bucket_size % sizeof(uint32_t);
+  if (!!padding) {
+    padding = sizeof(uint32_t) - padding;
+  }
+#else
+  uint8_t padding = 0;
+#endif
 
-  // const uint64_t size_of_dht = size * bucket_size;
+  const uint64_t size_of_dht = size * bucket_size;
 
   if (MPI_Comm_size(comm, &comm_size) != 0) {
     return NULL;
@@ -89,12 +116,6 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   ucx_ep_args_mpi_t mpi_ex = {
       .comm = comm, .comm_size = comm_size, .rank = rank};
 
-  // calculate how much bytes for the index are needed to address count of
-  // buckets per process
-  index_bytes = (int)ceil(log2(size));
-  if (index_bytes % 8 != 0)
-    index_bytes = index_bytes + (8 - (index_bytes % 8));
-
   // allocate memory for dht-object
   object = (DHT *)malloc(sizeof(DHT));
   CHK_UNLIKELY_RETURN(object == NULL, "allocating DHT object", NULL);
@@ -107,25 +128,24 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
                           (object->ucx_h == NULL),
                       "creating ucx context", NULL);
 
-  status = ucx_init_remote_memory(object->ucx_h, bucket_size, size);
+  status = ucx_init_remote_memory(object->ucx_h, size_of_dht);
   CHK_UNLIKELY_RETURN(status != UCS_OK, "allocating and pinning memory", NULL);
 
   // fill dht-object
-  // object->ucx_h->offset =
-  //     data_size + key_size + (sizeof(uint32_t) * 2) + 1 + padding;
-  // object->ucx_h->flag_padding = padding;
-  // object->ucx_h->lock_size = sizeof(uint32_t);
+  object->offset = bucket_size;
+  object->flag_padding = padding;
   object->lock_displ = 0;
+  object->data_displacement = LOCK_SIZE + padding;
   object->data_size = data_size;
   object->key_size = key_size;
-  object->table_size = size;
+  object->bucket_count = size;
   object->hash_func = hash_func;
   object->read_misses = 0;
   object->evictions = 0;
   object->chksum_retries = 0;
   object->recv_entry = malloc(1 + data_size + key_size + sizeof(uint32_t));
   object->send_entry = malloc(1 + data_size + key_size + sizeof(uint32_t));
-  object->index_count = 9 - (index_bytes / 8);
+  object->index_count = 8 - (get_index_bytes(size) - 1);
   object->index = (uint64_t *)malloc((object->index_count) * sizeof(uint64_t));
 
   // if set, initialize dht_stats
@@ -266,7 +286,7 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
 #endif
 
   // determine destination rank and index by hash of key
-  determine_dest(hash, table->ucx_h->comm_size, table->table_size, &dest_rank,
+  determine_dest(hash, table->ucx_h->comm_size, table->bucket_count, &dest_rank,
                  table->index, table->index_count);
 
   // concatenating key with data to write entry to DHT
@@ -286,8 +306,9 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
 
   for (i = 0; i < table->index_count; i++) {
     status = ucx_get_blocking(
-        table->ucx_h, dest_rank, table->index[i],
-        sizeof(uint32_t) + table->ucx_h->flag_padding, table->recv_entry,
+        table->ucx_h, dest_rank,
+        BUCKET_OFFSET(table->offset, table->index[i], table->data_displacement),
+        table->recv_entry,
         table->data_size + table->key_size + 1 + sizeof(uint32_t));
 
     if (status != UCS_OK) {
@@ -317,15 +338,16 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   }
 
 #ifdef DHT_WITH_LOCKING
-  if (UCS_OK != ucx_write_acquire_lock(table->ucx_h, table->index[i], dest_rank,
-                                       table->lock_displ)) {
+  const uint64_t offset_lock = table->offset * table->index[i];
+  if (UCS_OK != ucx_write_acquire_lock(table->ucx_h, dest_rank, offset_lock)) {
     return DHT_MPI_ERROR;
   };
 #endif
 
   status = ucx_put_blocking(
-      table->ucx_h, dest_rank, table->index[i],
-      sizeof(uint32_t) + table->ucx_h->flag_padding, table->send_entry,
+      table->ucx_h, dest_rank,
+      BUCKET_OFFSET(table->offset, table->index[i], table->data_displacement),
+      table->send_entry,
       table->data_size + table->key_size + sizeof(uint32_t) + 1);
 
   if (status != UCS_OK) {
@@ -361,15 +383,16 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
 #endif
 
   // determine destination rank and index by hash of key
-  determine_dest(hash, table->ucx_h->comm_size, table->table_size, &dest_rank,
+  determine_dest(hash, table->ucx_h->comm_size, table->bucket_count, &dest_rank,
                  table->index, table->index_count);
 
   ucs_status_t status;
 
   for (i = 0; i < table->index_count; i++) {
     status = ucx_get_blocking(
-        table->ucx_h, dest_rank, table->index[i],
-        sizeof(uint32_t) + table->ucx_h->flag_padding, table->recv_entry,
+        table->ucx_h, dest_rank,
+        BUCKET_OFFSET(table->offset, table->index[i], table->data_displacement),
+        table->recv_entry,
         table->data_size + table->key_size + 1 + sizeof(uint32_t));
 
     if (status != UCS_OK) {
@@ -411,8 +434,9 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
         }
 
         const char invalidate = *(buffer_begin) | BUCKET_INVALID;
-        status = ucx_put_blocking(table->ucx_h, dest_rank, table->index[i],
-                                  table->ucx_h->flag_padding + sizeof(uint32_t),
+        status = ucx_put_blocking(table->ucx_h, dest_rank,
+                                  BUCKET_OFFSET(table->offset, table->index[i],
+                                                table->data_displacement),
                                   &invalidate, sizeof(char));
         if (status != UCS_OK) {
           return DHT_MPI_ERROR;

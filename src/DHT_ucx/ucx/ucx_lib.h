@@ -1,7 +1,7 @@
 #ifndef UCX_LIB_H_
 #define UCX_LIB_H_
 
-#include "../dht_macros.h"
+#include "../macros.h"
 #include "DHT_ucx/DHT.h"
 #include "DHT_ucx/UCX_init.h"
 
@@ -20,8 +20,7 @@
 ucx_handle_t *ucx_init(ucx_worker_addr_bcast func_bcast, void *func_args,
                        int *func_ret);
 
-ucs_status_t ucx_init_remote_memory(ucx_handle_t *ucx_h, uint64_t bucket_size,
-                                    uint64_t count);
+ucs_status_t ucx_init_remote_memory(ucx_handle_t *ucx_h, uint64_t mem_size);
 
 ucs_status_t ucx_free_mem(ucx_handle_t *ucx_h);
 
@@ -29,24 +28,23 @@ void ucx_releaseEndpoints(ucx_handle_t *ucx_h);
 
 void ucx_finalize(ucx_handle_t *ucx_h);
 
-ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ctx_h, uint64_t index,
-                                    int rank, uint8_t lock_displacement);
+ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ucx_h, int rank,
+                                    uint64_t offset);
 
 ucs_status_ptr_t *ucx_put_nonblocking(const ucx_handle_t *ucx_h, int rank,
-                                      uint64_t index, uint32_t displacement,
-                                      uint64_t count, const void *buffer);
+                                      uint64_t offset, const void *buffer,
+                                      uint64_t count);
 
 ucs_status_ptr_t *ucx_get_nonblocking(const ucx_handle_t *ucx_h, int rank,
-                                      uint64_t index, uint32_t displacement,
-                                      uint64_t count, void *buffer);
+                                      uint64_t offset, void *buffer,
+                                      uint64_t count);
 
 ucs_status_t ucx_put_blocking(const ucx_handle_t *ucx_h, int rank,
-                              uint64_t index, uint32_t displacement,
-                              const void *buffer, uint64_t count);
+                              uint64_t offset, const void *buffer,
+                              uint64_t count);
 
 ucs_status_t ucx_get_blocking(const ucx_handle_t *ucx_h, int rank,
-                              uint64_t index, uint32_t displacement,
-                              void *buffer, uint64_t count);
+                              uint64_t offset, void *buffer, uint64_t count);
 
 ucs_status_t ucx_check_and_wait_completion(const ucx_handle_t *ucx_h,
                                            ucs_status_ptr_t *request, int imm);
