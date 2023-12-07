@@ -1,14 +1,14 @@
 #include "../macros.h"
 
+#include <DHT_ucx/DHT.h>
 #include <DHT_ucx/UCX_bcast_functions.h>
-#include <DHT_ucx/UCX_init.h>
 #include <mpi.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 int ucx_worker_bcast_mpi(ucp_address_t *worker_addr_self,
-                         uint64_t worker_addr_self_len, void *func_args,
+                         uint64_t worker_addr_self_len, const void *func_args,
                          ucx_ep_info_t *endpoint_info) {
   int status;
   const ucx_ep_args_mpi_t *mpi_args = (ucx_ep_args_mpi_t *)func_args;

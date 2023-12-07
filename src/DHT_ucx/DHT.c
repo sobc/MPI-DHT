@@ -34,7 +34,6 @@
 #include <unistd.h>
 
 #include "DHT_ucx/UCX_bcast_functions.h"
-#include "DHT_ucx/UCX_init.h"
 #include "macros.h"
 #include "ucx/ucx_lib.h"
 
@@ -82,17 +81,13 @@ static inline uint8_t get_index_bytes(uint64_t nbuckets) {
   return index_bytes;
 }
 
-DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
-                unsigned int key_size,
-                uint64_t (*hash_func)(int, const void *)) {
+DHT *DHT_create(const DHT_init_t *init_params) {
   DHT *object;
-
-  int comm_size;
-  int rank;
 
   ucs_status_t status;
 
-  const uint64_t bucket_size = 2 * sizeof(uint32_t) + data_size + key_size + 1;
+  const uint64_t bucket_size =
+      2 * sizeof(uint32_t) + init_params->data_size + init_params->key_size + 1;
 #ifdef DHT_WITH_LOCKING
   uint8_t padding = bucket_size % sizeof(uint32_t);
   if (!!padding) {
@@ -102,19 +97,7 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   uint8_t padding = 0;
 #endif
 
-  const uint64_t size_of_dht = size * bucket_size;
-
-  if (MPI_Comm_size(comm, &comm_size) != 0) {
-    return NULL;
-  }
-
-  if (MPI_Comm_rank(comm, &rank) != 0)
-    return NULL;
-
-  // HACK: this will be extinguished in future, as the exchange process will be
-  // decoupled from the actual DHT semantics
-  ucx_ep_args_mpi_t mpi_ex = {
-      .comm = comm, .comm_size = comm_size, .rank = rank};
+  const uint64_t size_of_dht = init_params->bucket_count * bucket_size;
 
   // allocate memory for dht-object
   object = (DHT *)malloc(sizeof(DHT));
@@ -122,7 +105,8 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
 
   int bcast_func_ret;
 
-  object->ucx_h = ucx_init(ucx_worker_bcast_mpi, &mpi_ex, &bcast_func_ret);
+  object->ucx_h = ucx_init(init_params->bcast_func,
+                           init_params->bcast_func_args, &bcast_func_ret);
 
   CHK_UNLIKELY_RETURN((bcast_func_ret != UCX_BCAST_OK) ||
                           (object->ucx_h == NULL),
@@ -136,16 +120,18 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   object->flag_padding = padding;
   object->lock_displ = 0;
   object->data_displacement = LOCK_SIZE + padding;
-  object->data_size = data_size;
-  object->key_size = key_size;
-  object->bucket_count = size;
-  object->hash_func = hash_func;
+  object->data_size = init_params->data_size;
+  object->key_size = init_params->key_size;
+  object->bucket_count = init_params->bucket_count;
+  object->hash_func = init_params->hash_func;
   object->read_misses = 0;
   object->evictions = 0;
   object->chksum_retries = 0;
-  object->recv_entry = malloc(1 + data_size + key_size + sizeof(uint32_t));
-  object->send_entry = malloc(1 + data_size + key_size + sizeof(uint32_t));
-  object->index_count = 8 - (get_index_bytes(size) - 1);
+  object->recv_entry =
+      malloc(1 + object->data_size + object->key_size + sizeof(uint32_t));
+  object->send_entry =
+      malloc(1 + object->data_size + object->key_size + sizeof(uint32_t));
+  object->index_count = 8 - (get_index_bytes(init_params->bucket_count) - 1);
   object->index = (uint64_t *)malloc((object->index_count) * sizeof(uint64_t));
 
   // if set, initialize dht_stats

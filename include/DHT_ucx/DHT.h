@@ -151,6 +151,36 @@ typedef struct {
 #endif
 } DHT;
 
+#define UCX_BCAST_NOT_RUN -1
+#define UCX_BCAST_OK 0
+#define UCX_BCAST_ERR 1
+
+typedef struct ucx_ep_info {
+  ucp_address_t **worker_addr;
+  uint32_t comm_size;
+  uint32_t self_rank;
+} ucx_ep_info_t;
+
+typedef int (*ucx_worker_addr_bcast)(ucp_address_t *worker_addr_self,
+                                     uint64_t worker_addr_self_len,
+                                     const void *func_args,
+                                     ucx_ep_info_t *endpoint_info);
+
+typedef struct DHT_init {
+  /** Size of the key of a bucket entry in byte. */
+  int key_size;
+  /** Size of the data of a bucket entry in byte. */
+  int data_size;
+  /** Count of buckets for each process. */
+  unsigned int bucket_count;
+  /** Pointer to a hashfunction. */
+  uint64_t (*hash_func)(int, const void *);
+  /** Pointer to broadcast function */
+  ucx_worker_addr_bcast bcast_func;
+  /** pointer to broadcast function arguments */
+  const void *bcast_func_args;
+} DHT_init_t;
+
 /* extern void DHT_set_accumulate_callback(DHT *table, */
 /*                                         int (*callback_func)(int, void *,
  * int, */
@@ -182,9 +212,7 @@ typedef struct {
  * @return DHT* The returned value is the \a DHT-object which serves as a handle
  * for all DHT operations. If an error occured NULL is returned.
  */
-extern DHT *DHT_create(MPI_Comm comm, uint64_t size_per_process,
-                       unsigned int data_size, unsigned int key_size,
-                       uint64_t (*hash_func)(int, const void *));
+extern DHT *DHT_create(const DHT_init_t *init_params);
 
 /**
  * @brief Write data into DHT.

@@ -3,7 +3,6 @@
 
 #include "../macros.h"
 #include "DHT_ucx/DHT.h"
-#include "DHT_ucx/UCX_init.h"
 
 #include <stdint.h>
 #include <ucp/api/ucp_def.h>
@@ -17,7 +16,7 @@
 #define CHECK_NO_WAIT 0
 #define CHECK_WAIT 1
 
-ucx_handle_t *ucx_init(ucx_worker_addr_bcast func_bcast, void *func_args,
+ucx_handle_t *ucx_init(ucx_worker_addr_bcast func_bcast, const void *func_args,
                        int *func_ret);
 
 ucs_status_t ucx_init_remote_memory(ucx_handle_t *ucx_h, uint64_t mem_size);

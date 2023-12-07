@@ -1,4 +1,3 @@
-#include "DHT_ucx/UCX_init.h"
 #include "../macros.h"
 #include "DHT_ucx/DHT.h"
 #include "ucx_lib.h"
@@ -91,7 +90,7 @@ static inline void ucx_free_ep_info(ucx_ep_info_t *ep_info) {
   free(ep_info->worker_addr);
 }
 
-ucx_handle_t *ucx_init(ucx_worker_addr_bcast func_bcast, void *func_args,
+ucx_handle_t *ucx_init(ucx_worker_addr_bcast func_bcast, const void *func_args,
                        int *func_ret) {
   ucs_status_t status;
   ucp_address_t *local_address;

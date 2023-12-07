@@ -1,4 +1,5 @@
 #include <DHT_ucx/DHT.h>
+#include <DHT_ucx/UCX_bcast_functions.h>
 #include <inttypes.h>
 #include <mpi.h>
 #include <stdint.h>
@@ -29,8 +30,16 @@ int main(int argc, char **argv) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
 
-  DHT *object = DHT_create(MPI_COMM_WORLD, 50, sizeof(uint32_t),
-                           sizeof(uint32_t), xxhashWrapper);
+  const ucx_ep_args_mpi_t mpi_bcast_params = {
+      .comm = MPI_COMM_WORLD, .comm_size = comm_size, .rank = rank};
+  DHT_init_t init_params = {.data_size = sizeof(uint32_t),
+                            .key_size = sizeof(uint32_t),
+                            .bucket_count = 50,
+                            .hash_func = xxhashWrapper,
+                            .bcast_func = UCX_INIT_BCAST_MPI,
+                            .bcast_func_args = &mpi_bcast_params};
+
+  DHT *object = DHT_create(&init_params);
 
   if (object == NULL) {
     fprintf(stderr, "Error while creating DHT. Aborting ...\n");
