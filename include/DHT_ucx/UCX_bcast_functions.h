@@ -8,15 +8,21 @@
 #include <stdlib.h>
 #include <ucp/api/ucp.h>
 
+#if defined(c_plusplus) || defined(__cplusplus)
+extern "C" {
+#endif
+
 typedef struct ucx_ep_args_mpi {
   MPI_Comm comm;
-  int comm_size;
-  int rank;
 } ucx_ep_args_mpi_t;
 
 int ucx_worker_bcast_mpi(ucp_address_t *worker_addr_self,
                          uint64_t worker_addr_self_len, const void *func_args,
                          ucx_ep_info_t *endpoint_info);
+
+#if defined(c_plusplus) || defined(__cplusplus)
+}
+#endif
 
 #define UCX_INIT_BCAST_MPI ucx_worker_bcast_mpi
 

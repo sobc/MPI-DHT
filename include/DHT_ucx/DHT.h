@@ -58,6 +58,10 @@
 /** Size of the file header in byte. */
 #define DHT_FILEHEADER_SIZE 8
 
+#if defined(c_plusplus) || defined(__cplusplus)
+extern "C" {
+#endif
+
 /**
  * Internal struct to store statistics about read and write accesses and also
  * read misses and evictions.
@@ -212,7 +216,7 @@ typedef struct DHT_init {
  * @return DHT* The returned value is the \a DHT-object which serves as a handle
  * for all DHT operations. If an error occured NULL is returned.
  */
-extern DHT *DHT_create(const DHT_init_t *init_params);
+DHT *DHT_create(const DHT_init_t *init_params);
 
 /**
  * @brief Write data into DHT.
@@ -236,8 +240,8 @@ extern DHT *DHT_create(const DHT_init_t *init_params);
  * @return int Returns either DHT_SUCCESS on success or correspondending error
  * value on eviction or error.
  */
-extern int DHT_write(DHT *table, void *key, void *data, uint32_t *proc,
-                     uint32_t *index);
+int DHT_write(DHT *table, void *key, void *data, uint32_t *proc,
+              uint32_t *index);
 
 /**
  * @brief Read data from DHT.
@@ -260,7 +264,7 @@ extern int DHT_write(DHT *table, void *key, void *data, uint32_t *proc,
  * @return int Returns either DHT_SUCCESS on success or correspondending error
  * value on read miss or error.
  */
-extern int DHT_read(DHT *table, const void *key, void *destination);
+int DHT_read(DHT *table, const void *key, void *destination);
 
 /* extern int DHT_read_location(DHT *table, uint32_t proc, uint32_t index, */
 /*                              void *destination); */
@@ -278,7 +282,7 @@ extern int DHT_read(DHT *table, const void *key, void *destination);
  * @return int Returns DHT_SUCCESS on succes, DHT_FILE_IO_ERROR if file can't be
  * opened/closed or DHT_WRITE_ERROR if file is not writable.
  */
-extern int DHT_to_file(DHT *table, const char *filename);
+int DHT_to_file(DHT *table, const char *filename);
 
 /**
  * @brief Read state of DHT from file.
@@ -298,7 +302,7 @@ extern int DHT_to_file(DHT *table, const char *filename);
  * file doesn't match expectation. This is possible if the data size or key size
  * is different.
  */
-extern int DHT_from_file(DHT *table, const char *filename);
+int DHT_from_file(DHT *table, const char *filename);
 
 /**
  * @brief Free ressources of DHT.
@@ -316,8 +320,8 @@ extern int DHT_from_file(DHT *table, const char *filename);
  * @return int Returns either DHT_SUCCESS on success or DHT_MPI_ERROR on
  * internal MPI error.
  */
-extern int DHT_free(DHT *table, uint64_t *eviction_counter,
-                    uint64_t *readerror_counter, uint64_t *chksum_retries);
+int DHT_free(DHT *table, uint64_t *eviction_counter,
+             uint64_t *readerror_counter, uint64_t *chksum_retries);
 
 /**
  * @brief Prints a table with statistics about current use of DHT.
@@ -343,8 +347,12 @@ extern int DHT_free(DHT *table, uint64_t *eviction_counter,
  * @return int Returns DHT_SUCCESS on success or DHT_MPI_ERROR on internal MPI
  * error.
  */
-extern int DHT_print_statistics(DHT *table);
+int DHT_print_statistics(DHT *table);
 
-extern int DHT_barrier(DHT *table);
+int DHT_barrier(DHT *table);
+
+#if defined(c_plusplus) || defined(__cplusplus)
+}
+#endif
 
 #endif /* DHT_H */

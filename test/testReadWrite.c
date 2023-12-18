@@ -30,8 +30,7 @@ int main(int argc, char **argv) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
 
-  const ucx_ep_args_mpi_t mpi_bcast_params = {
-      .comm = MPI_COMM_WORLD, .comm_size = comm_size, .rank = rank};
+  const ucx_ep_args_mpi_t mpi_bcast_params = {.comm = MPI_COMM_WORLD};
   DHT_init_t init_params = {.data_size = sizeof(uint32_t),
                             .key_size = sizeof(uint32_t),
                             .bucket_count = 50,
