@@ -32,7 +32,7 @@ void ucx_releaseEndpoints(ucx_handle_t *ucx_h) {
   ucs_status_ptr_t request;
   ucp_request_param_t req_param = {.op_attr_mask = 0};
 
-  for (int i = 0; i < ucx_h->comm_size; i++) {
+  for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
     request = ucp_ep_close_nbx(ucx_h->ep_list[i], &req_param);
 
     if (UCS_PTR_IS_PTR(request)) {

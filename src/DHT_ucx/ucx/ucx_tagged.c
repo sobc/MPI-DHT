@@ -70,21 +70,6 @@ ucs_status_t ucx_broadcast(const ucx_handle_t *ucx_h, uint64_t root, void *msg,
 
     status = recv_msg_w_tag(ucx_h, msg, expected_tag, UINT64_MAX);
 
-    // ucp_tag_message_h msg_h;
-    // ucp_tag_recv_info_t msg_info;
-
-    // do {
-    //   ucp_worker_progress(ucx_h->ucp_worker);
-
-    //   msg_h = ucp_tag_probe_nb(ucx_h->ucp_worker, expected_tag, UINT64_MAX,
-    //   1,
-    //                            &msg_info);
-    // } while (msg_h == NULL);
-
-    // request = ucp_tag_msg_recv_nbx(ucx_h->ucp_worker, msg, msg_info.length,
-    //                                msg_h, &tag_param);
-
-    // status = ucx_check_and_wait_completion(ucx_h, request, CHECK_WAIT);
     if (UCS_OK != status) {
       return status;
     }

@@ -76,6 +76,10 @@ static inline ucs_status_t ucx_createEndpoints(ucp_worker_h worker,
     ep_params.address = ep_info->worker_addr[i];
     status = ucp_ep_create(worker, &ep_params, &(*ep_list)[i]);
     if (unlikely(status != UCS_OK)) {
+      for (uint32_t j = i - 1; j >= 0; j--) {
+        ucp_ep_destroy((*ep_list)[j]);
+      }
+      free(*ep_list);
       return status;
     }
   }
@@ -103,29 +107,29 @@ ucx_handle_t *ucx_init(ucx_worker_addr_bcast func_bcast, const void *func_args,
 
   ucx_h = malloc(sizeof(ucx_handle_t));
   if (unlikely(ucx_h == NULL)) {
-    return NULL;
+    goto err_no_handle;
   }
 
   status = ucx_initContext(&ucx_h->ucp_context);
   if (unlikely(status != UCS_OK)) {
-    return NULL;
+    goto err_subfuncs;
   }
 
   status = ucx_initWorker(ucx_h->ucp_context, &ucx_h->ucp_worker,
                           &local_address, &local_address_len);
   if (unlikely(status != UCS_OK)) {
-    return NULL;
+    goto err_subfuncs;
   }
 
   *func_ret =
       (*func_bcast)(local_address, local_address_len, func_args, &ep_info);
   if (unlikely(*func_ret != UCX_BCAST_OK)) {
-    return NULL;
+    goto err_subfuncs;
   }
 
   status = ucx_createEndpoints(ucx_h->ucp_worker, &ep_info, &ucx_h->ep_list);
   if (unlikely(status != UCS_OK)) {
-    return NULL;
+    goto err_subfuncs;
   }
 
   ucx_h->comm_size = ep_info.comm_size;
@@ -135,4 +139,9 @@ ucx_handle_t *ucx_init(ucx_worker_addr_bcast func_bcast, const void *func_args,
   ucx_free_ep_info(&ep_info);
 
   return ucx_h;
+
+err_subfuncs:
+  free(ucx_h);
+err_no_handle:
+  return NULL;
 }

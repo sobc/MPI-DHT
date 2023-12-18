@@ -23,18 +23,31 @@ static ucs_status_t ucx_createMemory(ucp_context_h context, uint64_t size,
   mem_params.length = size;
   mem_params.flags = UCP_MEM_MAP_ALLOCATE;
   status = ucp_mem_map(context, &mem_params, mem_h);
-  CHK_UNLIKELY_RETURN(status != UCS_OK, "Allocation and registration of memory",
-                      status);
+  if (unlikely(status != UCS_OK)) {
+    return status;
+  }
 
   mem_attr.field_mask = UCP_MEM_ATTR_FIELD_ADDRESS;
   status = ucp_mem_query(*mem_h, &mem_attr);
-  CHK_UNLIKELY_RETURN(status != UCS_OK, "Query memory handle", status);
+  if (unlikely(status != UCS_OK)) {
+    ucp_mem_unmap(context, *mem_h);
+    return status;
+  }
 
   memset(mem_attr.address, '\0', size);
   *local_mem = (uint64_t)mem_attr.address;
 
   return UCS_OK;
 }
+
+#define FREE_ALREADY_ALLOCATED_ENTRIES(last, self, arr)                        \
+  do {                                                                         \
+    for (uint32_t j = last; j >= 0; j--) {                                     \
+      if (j != self) {                                                         \
+        free(arr[j]);                                                          \
+      }                                                                        \
+    }                                                                          \
+  } while (0)
 
 static ucs_status_t ucx_exchangeRKeys(ucx_handle_t *ucx_h) {
   ucs_status_t status;
@@ -47,22 +60,30 @@ static ucs_status_t ucx_exchangeRKeys(ucx_handle_t *ucx_h) {
   ucp_rkey_h *local_rkey_handles;
 
   local_rem_addr = (uint64_t *)malloc(sizeof(uint64_t) * ucx_h->comm_size);
-  CHK_UNLIKELY_RETURN(local_rem_addr == NULL,
-                      "allocating remote addresses array", UCS_ERR_NO_MEMORY);
+  if (unlikely(local_rem_addr == NULL)) {
+    status = UCS_ERR_NO_MEMORY;
+    goto err_local_rem_addr;
+  }
 
   local_rkey_buffer = (void **)malloc(sizeof(void *) * ucx_h->comm_size);
-  CHK_UNLIKELY_RETURN(local_rkey_buffer == NULL, "allocating rkey buffer",
-                      UCS_ERR_NO_MEMORY);
+  if (unlikely(local_rkey_buffer == NULL)) {
+    status = UCS_ERR_NO_MEMORY;
+    goto err_local_rkey_buffer;
+  }
 
   local_rkey_handles =
       (ucp_rkey_h *)malloc(sizeof(ucp_rkey_h) * ucx_h->comm_size);
-  CHK_UNLIKELY_RETURN(local_rkey_handles == NULL,
-                      "allocating rkey handle array", UCS_ERR_NO_MEMORY);
+  if (unlikely(local_rkey_handles == NULL)) {
+    status = UCS_ERR_NO_MEMORY;
+    goto err_local_rkey_handles;
+  }
 
   status =
       ucp_rkey_pack(ucx_h->ucp_context, ucx_h->mem_h,
                     &local_rkey_buffer[ucx_h->self_rank], &local_rkey_size);
-  CHK_UNLIKELY_RETURN(status != UCS_OK, "packing rkey", status);
+  if (unlikely(status != UCS_OK)) {
+    goto err_after_allocation;
+  }
 
   for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
     if (i == ucx_h->self_rank) {
@@ -72,28 +93,38 @@ static ucs_status_t ucx_exchangeRKeys(ucx_handle_t *ucx_h) {
 
     status = ucx_broadcast(ucx_h, i, &curr_rkey_size, sizeof(uint64_t), 0);
     if (status != UCS_OK) {
-      return status;
+      goto err_after_allocation;
     }
 
     status = ucx_broadcast(ucx_h, i, &local_rem_addr[i], sizeof(uint64_t), 1);
     if (status != UCS_OK) {
-      return status;
+      goto err_after_allocation;
     }
 
     if (i != ucx_h->self_rank) {
       local_rkey_buffer[i] = malloc(curr_rkey_size);
-      CHK_UNLIKELY_RETURN(local_rkey_buffer[i] == NULL,
-                          "Allocating rkey buffer element", UCS_ERR_NO_MEMORY);
+      if (unlikely(local_rkey_buffer[i] == NULL)) {
+        FREE_ALREADY_ALLOCATED_ENTRIES(i - 1, ucx_h->self_rank,
+                                       local_rkey_buffer);
+        status = UCS_ERR_NO_MEMORY;
+        goto err_after_allocation;
+      }
     }
 
     status = ucx_broadcast(ucx_h, i, local_rkey_buffer[i], curr_rkey_size, 2);
-    if (status != UCS_OK) {
-      return status;
+    if (unlikely(status != UCS_OK)) {
+      FREE_ALREADY_ALLOCATED_ENTRIES(i - 1, ucx_h->self_rank,
+                                     local_rkey_buffer);
+      goto err_after_allocation;
     }
 
     status = ucp_ep_rkey_unpack(ucx_h->ep_list[i], local_rkey_buffer[i],
                                 &local_rkey_handles[i]);
-    CHK_UNLIKELY_RETURN(status != UCS_OK, "unpacking rkey", status);
+    if (unlikely(status != UCS_OK)) {
+      FREE_ALREADY_ALLOCATED_ENTRIES(i - 1, ucx_h->self_rank,
+                                     local_rkey_buffer);
+      goto err_after_allocation;
+    }
   }
 
   ucx_h->remote_addr = local_rem_addr;
@@ -101,6 +132,15 @@ static ucs_status_t ucx_exchangeRKeys(ucx_handle_t *ucx_h) {
   ucx_h->rkey_handles = local_rkey_handles;
 
   return UCS_OK;
+
+err_after_allocation:
+  free(local_rkey_handles);
+err_local_rkey_handles:
+  free(local_rkey_buffer);
+err_local_rkey_buffer:
+  free(local_rem_addr);
+err_local_rem_addr:
+  return status;
 }
 
 static ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h) {
@@ -118,7 +158,7 @@ static ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h) {
 }
 
 ucs_status_t ucx_init_remote_memory(ucx_handle_t *ucx_h, uint64_t mem_size) {
-  ucs_status_t status;
+  ucs_status_t status = UCS_OK;
 
   status = ucx_createMemory(ucx_h->ucp_context, mem_size, &ucx_h->mem_h,
                             &ucx_h->local_mem_addr);
@@ -128,18 +168,23 @@ ucs_status_t ucx_init_remote_memory(ucx_handle_t *ucx_h, uint64_t mem_size) {
 
   status = ucx_exchangeRKeys(ucx_h);
   if (unlikely(status != UCS_OK)) {
+    ucp_mem_unmap(ucx_h->ucp_context, ucx_h->mem_h);
     return status;
   }
 
   status = ucx_barrier(ucx_h);
   if (unlikely(status != UCS_OK)) {
-    return status;
+    goto err_release_memory;
   }
 
   status = ucx_initPostRecv(ucx_h);
   if (unlikely(status != UCS_OK)) {
-    return status;
+    goto err_release_memory;
   }
 
-  return UCS_OK;
+  return status;
+
+err_release_memory:
+  ucx_free_mem(ucx_h);
+  return status;
 }
