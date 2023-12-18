@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
 
   status = DHT_write(object, &key, &data, NULL, NULL);
 
-  if (DHT_MPI_ERROR == status) {
+  if (DHT_UCX_ERROR == status) {
     fprintf(stderr, "Error during write. Aborting ...\n");
     MPI_Abort(MPI_COMM_WORLD, status);
   }
@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
 
   status = DHT_read(object, &key, &data);
 
-  if (DHT_MPI_ERROR == status) {
+  if (DHT_UCX_ERROR == status) {
     fprintf(stderr, "Error during read. Aborting ...\n");
     MPI_Abort(MPI_COMM_WORLD, status);
     return 1;

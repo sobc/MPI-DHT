@@ -43,9 +43,20 @@
 
 #define BUCKET_OFFSET(offset, i, disp) (offset * i) + disp
 
-static void determine_dest(uint64_t hash, int comm_size,
-                           unsigned int table_size, unsigned int *dest_rank,
-                           uint64_t *index, unsigned int index_count) {
+/**
+ * Determines the destination rank and index for a given key.
+ *
+ * @param hash The hash value of the key.
+ * @param comm_size The size of the communicator.
+ * @param table_size The size of the DHT.
+ * @param dest_rank A pointer to the destination rank.
+ * @param index A pointer to the index array.
+ * @param index_count The number of indices.
+ */
+static inline void determine_dest(uint64_t hash, int comm_size,
+                                  unsigned int table_size,
+                                  unsigned int *dest_rank, uint64_t *index,
+                                  unsigned int index_count) {
   /** temporary index */
   uint64_t tmp_index;
   /** how many bytes do we need for one index? */
@@ -58,8 +69,13 @@ static void determine_dest(uint64_t hash, int comm_size,
   *dest_rank = (unsigned int)(hash % comm_size);
 }
 
-// calculate how much bytes for the index are needed to address count of
-// buckets per process
+/**
+ * Calculates the number of bytes needed to store an index for a given number of
+ * buckets.
+ *
+ * @param nbuckets The number of buckets.
+ * @return The number of bytes needed to store the index.
+ */
 static inline uint8_t get_index_bytes(uint64_t nbuckets) {
   uint8_t index_bits = 0;
   uint64_t temp_size = nbuckets;
@@ -69,12 +85,6 @@ static inline uint8_t get_index_bytes(uint64_t nbuckets) {
     temp_size >>= 1;
     index_bits++;
   }
-
-  // const uint8_t mod8 = index_bytes % 8;
-  // // Round up to the nearest multiple of 8
-  // if (mod8 != 0) {
-  //   index_bytes += (8 - mod8);
-  // }
 
   const uint8_t index_bytes = (uint8_t)(index_bits / 8) + 1;
 
@@ -101,19 +111,23 @@ DHT *DHT_create(const DHT_init_t *init_params) {
 
   // allocate memory for dht-object
   object = (DHT *)malloc(sizeof(DHT));
-  CHK_UNLIKELY_RETURN(object == NULL, "allocating DHT object", NULL);
+  if (unlikely(object == NULL)) {
+    return NULL;
+  }
 
   int bcast_func_ret;
 
   object->ucx_h = ucx_init(init_params->bcast_func,
                            init_params->bcast_func_args, &bcast_func_ret);
 
-  CHK_UNLIKELY_RETURN((bcast_func_ret != UCX_BCAST_OK) ||
-                          (object->ucx_h == NULL),
-                      "creating ucx context", NULL);
+  if (unlikely((bcast_func_ret != UCX_BCAST_OK) || (object->ucx_h == NULL))) {
+    goto err_after_object;
+  }
 
   status = ucx_init_remote_memory(object->ucx_h, size_of_dht);
-  CHK_UNLIKELY_RETURN(status != UCS_OK, "allocating and pinning memory", NULL);
+  if (unlikely(status != UCS_OK)) {
+    goto err_after_ucx_init;
+  }
 
   // fill dht-object
   object->offset = bucket_size;
@@ -129,21 +143,44 @@ DHT *DHT_create(const DHT_init_t *init_params) {
   object->chksum_retries = 0;
   object->recv_entry =
       malloc(1 + object->data_size + object->key_size + sizeof(uint32_t));
+  if (unlikely(object->recv_entry == NULL)) {
+    goto err_after_ucx_init;
+  }
   object->send_entry =
       malloc(1 + object->data_size + object->key_size + sizeof(uint32_t));
+  if (unlikely(object->send_entry == NULL)) {
+    free(object->recv_entry);
+    goto err_after_ucx_init;
+  }
   object->index_count = 8 - (get_index_bytes(init_params->bucket_count) - 1);
   object->index = (uint64_t *)malloc((object->index_count) * sizeof(uint64_t));
+  if (unlikely(object->index == NULL)) {
+    free(object->recv_entry);
+    free(object->send_entry);
+    goto err_after_ucx_init;
+  }
 
   // if set, initialize dht_stats
 #ifdef DHT_STATISTICS
   DHT_stats *stats;
 
   stats = (DHT_stats *)malloc(sizeof(DHT_stats));
-  if (stats == NULL)
-    return NULL;
+  if (stats == NULL) {
+    free(object->recv_entry);
+    free(object->send_entry);
+    free(object->index);
+    goto err_after_ucx_init;
+  }
 
   object->stats = stats;
   object->stats->writes_local = (int *)calloc(comm_size, sizeof(int));
+  if (unlikely(object->stats->writes_local == NULL)) {
+    free(object->recv_entry);
+    free(object->send_entry);
+    free(object->index);
+    free(object->stats);
+    goto err_after_ucx_init;
+  }
   object->stats->old_writes = 0;
   object->stats->read_misses = 0;
   object->stats->evictions = 0;
@@ -152,6 +189,14 @@ DHT *DHT_create(const DHT_init_t *init_params) {
 #endif
 
   return object;
+
+err_after_ucx_init:
+  ucx_releaseEndpoints(object->ucx_h);
+  ucx_finalize(object->ucx_h);
+  free(object->ucx_h);
+err_after_object:
+  free(object);
+  return NULL;
 }
 
 int DHT_barrier(DHT *table) { return ucx_barrier(table->ucx_h); }
@@ -189,15 +234,15 @@ int DHT_barrier(DHT *table) { return ucx_barrier(table->ucx_h); }
 
 /*   // locking window of target rank with exclusive lock */
 /*   if (MPI_Win_lock(MPI_LOCK_EXCLUSIVE, dest_rank, 0, table->window) != 0) */
-/*     return DHT_MPI_ERROR; */
+/*     return DHT_UCX_ERROR; */
 /*   for (i = 0; i < table->index_count; i++) { */
 /*     if (MPI_Get(table->recv_entry, 1 + table->data_size + table->key_size, */
 /*                 MPI_BYTE, dest_rank, table->index[i], */
 /*                 1 + table->data_size + table->key_size, MPI_BYTE, */
 /*                 table->window) != 0) */
-/*       return DHT_MPI_ERROR; */
+/*       return DHT_UCX_ERROR; */
 /*     if (MPI_Win_flush(dest_rank, table->window) != 0) */
-/*       return DHT_MPI_ERROR; */
+/*       return DHT_UCX_ERROR; */
 
 /*     // increment eviction counter if receiving key doesn't match sending key
  */
@@ -243,11 +288,11 @@ int DHT_barrier(DHT *table) { return ucx_barrier(table->ucx_h); }
 /*                 MPI_BYTE, dest_rank, table->index[i], */
 /*                 1 + table->data_size + table->key_size, MPI_BYTE, */
 /*                 table->window) != 0) */
-/*       return DHT_MPI_ERROR; */
+/*       return DHT_UCX_ERROR; */
 /*   } */
 /*   // unlock window of target rank */
 /*   if (MPI_Win_unlock(dest_rank, table->window) != 0) */
-/*     return DHT_MPI_ERROR; */
+/*     return DHT_UCX_ERROR; */
 
 /*   if (proc) { */
 /*     *proc = dest_rank; */
@@ -262,54 +307,67 @@ int DHT_barrier(DHT *table) { return ucx_barrier(table->ucx_h); }
 
 int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
               uint32_t *index) {
-  unsigned int dest_rank, i;
+  unsigned int curr_index;
+  unsigned int dest_rank;
   int result = DHT_SUCCESS;
+
+  // pointer to the beginning of the receive buffer
   const char *buffer_begin = (char *)table->recv_entry;
+  // hash of the key to be written
   const uint64_t hash = table->hash_func(table->key_size, send_key);
 
-#ifdef DHT_STATISTICS
-  table->stats->w_access++;
-#endif
+  ucs_status_t status;
 
   // determine destination rank and index by hash of key
   determine_dest(hash, table->ucx_h->comm_size, table->bucket_count, &dest_rank,
                  table->index, table->index_count);
 
-  // concatenating key with data to write entry to DHT
+  // concatenate key and data to write entry to DHT
+  // set write flag
   *((char *)table->send_entry) = (0 | BUCKET_OCCUPIED);
-  memcpy((char *)table->send_entry + 1, (char *)send_key, table->key_size);
-  memcpy((char *)table->send_entry + table->key_size + 1, (char *)send_data,
+  // copy key
+  memcpy((char *)table->send_entry + 1, send_key, table->key_size);
+  // copy data
+  memcpy((char *)table->send_entry + table->key_size + 1, send_data,
          table->data_size);
 
+  // calculate the checksum of the key and data
   const void *key_val_begin = (char *)table->send_entry + 1;
   const uint32_t chksum = CROP_HASH(
       table->hash_func(table->key_size + table->data_size, key_val_begin));
 
+  // store the checksum at the end of the entry
   memcpy((char *)table->send_entry + table->data_size + table->key_size + 1,
          &chksum, sizeof(uint32_t));
 
-  ucs_status_t status;
-
-  for (i = 0; i < table->index_count; i++) {
+  // loop through the index array, checking for an available bucket
+  for (curr_index = 0; curr_index < table->index_count; curr_index++) {
+    // get the contents of the destination bucket
     status = ucx_get_blocking(
         table->ucx_h, dest_rank,
-        BUCKET_OFFSET(table->offset, table->index[i], table->data_displacement),
+        BUCKET_OFFSET(table->offset, table->index[curr_index],
+                      table->data_displacement),
         table->recv_entry,
         table->data_size + table->key_size + 1 + sizeof(uint32_t));
 
     if (status != UCS_OK) {
-      return DHT_MPI_ERROR;
+      return DHT_UCX_ERROR;
     }
 
+    // check if the destination bucket is available
     if (!(*(buffer_begin) & (BUCKET_OCCUPIED | BUCKET_INVALID))) {
+// if the bucket is available, break out of the loop
 #ifdef DHT_STATISTICS
       table->stats->writes_local[dest_rank]++;
 #endif
       break;
     }
 
+    // check if the keys match
     if (memcmp((buffer_begin + 1), send_key, table->key_size) != 0) {
-      if (i == (table->index_count) - 1) {
+      // if the keys don't match, continue to the next index
+      if (curr_index == (table->index_count) - 1) {
+        // if this is the last index, increment the eviction counter
         table->evictions += 1;
 #ifdef DHT_STATISTICS
         table->stats->evictions += 1;
@@ -320,45 +378,51 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
       continue;
     }
 
+    // if the keys match, overwrite the contents of the destination bucket
     break;
   }
 
+// acquire a lock on the destination bucket
 #ifdef DHT_WITH_LOCKING
-  const uint64_t offset_lock = table->offset * table->index[i];
+  const uint64_t offset_lock = table->offset * table->index[curr_index];
   if (UCS_OK != ucx_write_acquire_lock(table->ucx_h, dest_rank, offset_lock)) {
-    return DHT_MPI_ERROR;
-  };
+    return DHT_UCX_ERROR;
+  }
 #endif
 
+  // write the entry to the destination bucket
   status = ucx_put_blocking(
       table->ucx_h, dest_rank,
-      BUCKET_OFFSET(table->offset, table->index[i], table->data_displacement),
+      BUCKET_OFFSET(table->offset, table->index[curr_index],
+                    table->data_displacement),
       table->send_entry,
       table->data_size + table->key_size + sizeof(uint32_t) + 1);
 
   if (status != UCS_OK) {
-    return DHT_MPI_ERROR;
+    return DHT_UCX_ERROR;
   }
 
+// release the lock on the destination bucket
 #ifdef DHT_WITH_LOCKING
   if (UCS_OK != ucx_write_release_lock(table->ucx_h)) {
-    return DHT_MPI_ERROR;
+    return DHT_UCX_ERROR;
   }
 #endif
 
+  // set the return values
   if (proc) {
     *proc = dest_rank;
   }
-
   if (index) {
-    *index = table->index[i];
+    *index = table->index[curr_index];
   }
 
   return result;
 }
 
 int DHT_read(DHT *table, const void *send_key, void *destination) {
-  unsigned int dest_rank, i;
+  unsigned int curr_index;
+  unsigned int dest_rank;
   const char *buffer_begin = (char *)table->recv_entry;
   const uint64_t hash = table->hash_func(table->key_size, send_key);
 
@@ -374,15 +438,16 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
 
   ucs_status_t status;
 
-  for (i = 0; i < table->index_count; i++) {
+  for (curr_index = 0; curr_index < table->index_count; curr_index++) {
     status = ucx_get_blocking(
         table->ucx_h, dest_rank,
-        BUCKET_OFFSET(table->offset, table->index[i], table->data_displacement),
+        BUCKET_OFFSET(table->offset, table->index[curr_index],
+                      table->data_displacement),
         table->recv_entry,
         table->data_size + table->key_size + 1 + sizeof(uint32_t));
 
     if (status != UCS_OK) {
-      return DHT_MPI_ERROR;
+      return DHT_UCX_ERROR;
     }
 
     if (!(*(buffer_begin) & (BUCKET_OCCUPIED))) {
@@ -394,7 +459,7 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
       return DHT_READ_MISS;
     }
     if (memcmp((buffer_begin + 1), send_key, table->key_size) != 0) {
-      if (i == (table->index_count) - 1) {
+      if (curr_index == (table->index_count) - 1) {
         table->read_misses += 1;
 #ifdef DHT_STATISTICS
         table->stats->read_misses += 1;
@@ -414,18 +479,19 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
                                      key_val_begin))) {
         if (!retry) {
           retry = 1;
-          i--;
+          curr_index--;
           table->chksum_retries++;
           continue;
         }
 
         const char invalidate = *(buffer_begin) | BUCKET_INVALID;
         status = ucx_put_blocking(table->ucx_h, dest_rank,
-                                  BUCKET_OFFSET(table->offset, table->index[i],
+                                  BUCKET_OFFSET(table->offset,
+                                                table->index[curr_index],
                                                 table->data_displacement),
                                   &invalidate, sizeof(char));
         if (status != UCS_OK) {
-          return DHT_MPI_ERROR;
+          return DHT_UCX_ERROR;
         }
 
         return DHT_READ_MISS;
@@ -452,16 +518,16 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
 
 /*   // locking window of target rank with shared lock */
 /*   if (MPI_Win_lock(MPI_LOCK_SHARED, proc, 0, table->window) != 0) */
-/*     return DHT_MPI_ERROR; */
+/*     return DHT_UCX_ERROR; */
 /*   // receive data */
 /*   if (MPI_Get(table->recv_entry, bucket_size, MPI_BYTE, proc, index, */
 /*               bucket_size, MPI_BYTE, table->window) != 0) { */
-/*     return DHT_MPI_ERROR; */
+/*     return DHT_UCX_ERROR; */
 /*   } */
 
 /*   // unlock window of target rank */
 /*   if (MPI_Win_unlock(proc, table->window) != 0) */
-/*     return DHT_MPI_ERROR; */
+/*     return DHT_UCX_ERROR; */
 
 /*   // if matching key was found copy data into memory of passed pointer */
 /*   memcpy((char *)destination, (char *)table->recv_entry + 1 +
@@ -581,8 +647,8 @@ int DHT_to_file(DHT *table, const char *filename) {
 //     // extract key and data and write to DHT
 //     key = buffer;
 //     data = (buffer + table->key_size);
-//     if (DHT_write(table, key, data, NULL, NULL) == DHT_MPI_ERROR)
-//       return DHT_MPI_ERROR;
+//     if (DHT_write(table, key, data, NULL, NULL) == DHT_UCX_ERROR)
+//       return DHT_UCX_ERROR;
 
 //     // increment current position
 //     cur_pos += offset;
@@ -610,21 +676,21 @@ int DHT_free(DHT *table, uint64_t *eviction_counter,
   if (eviction_counter != NULL) {
     buf = table->evictions;
     if (UCS_OK != ucx_reduce_sum(table->ucx_h, &buf, 0)) {
-      return DHT_MPI_ERROR;
+      return DHT_UCX_ERROR;
     }
     *eviction_counter = buf;
   }
   if (readerror_counter != NULL) {
     buf = table->read_misses;
     if (UCS_OK != ucx_reduce_sum(table->ucx_h, &buf, 0)) {
-      return DHT_MPI_ERROR;
+      return DHT_UCX_ERROR;
     }
     *readerror_counter = buf;
   }
   if (chksum_retries != NULL) {
     buf = table->chksum_retries;
     if (UCS_OK != ucx_reduce_sum(table->ucx_h, &buf, 0)) {
-      return DHT_MPI_ERROR;
+      return DHT_UCX_ERROR;
     }
     *chksum_retries = buf;
   }
@@ -668,47 +734,47 @@ int DHT_print_statistics(DHT *table) {
     read_misses = (int *)malloc(table->comm_size * sizeof(int));
   if (MPI_Gather(&table->stats->read_misses, 1, MPI_INT, read_misses, 1,
                  MPI_INT, 0, table->communicator) != 0)
-    return DHT_MPI_ERROR;
+    return DHT_UCX_ERROR;
   if (MPI_Reduce(&table->stats->read_misses, &sum_read_misses, 1, MPI_INT,
                  MPI_SUM, 0, table->communicator) != 0)
-    return DHT_MPI_ERROR;
+    return DHT_UCX_ERROR;
   table->stats->read_misses = 0;
 
   if (rank == 0)
     evictions = (int *)malloc(table->comm_size * sizeof(int));
   if (MPI_Gather(&table->stats->evictions, 1, MPI_INT, evictions, 1, MPI_INT, 0,
                  table->communicator) != 0)
-    return DHT_MPI_ERROR;
+    return DHT_UCX_ERROR;
   if (MPI_Reduce(&table->stats->evictions, &sum_evictions, 1, MPI_INT, MPI_SUM,
                  0, table->communicator) != 0)
-    return DHT_MPI_ERROR;
+    return DHT_UCX_ERROR;
   table->stats->evictions = 0;
 
   if (rank == 0)
     w_access = (int *)malloc(table->comm_size * sizeof(int));
   if (MPI_Gather(&table->stats->w_access, 1, MPI_INT, w_access, 1, MPI_INT, 0,
                  table->communicator) != 0)
-    return DHT_MPI_ERROR;
+    return DHT_UCX_ERROR;
   if (MPI_Reduce(&table->stats->w_access, &sum_w_access, 1, MPI_INT, MPI_SUM, 0,
                  table->communicator) != 0)
-    return DHT_MPI_ERROR;
+    return DHT_UCX_ERROR;
   table->stats->w_access = 0;
 
   if (rank == 0)
     r_access = (int *)malloc(table->comm_size * sizeof(int));
   if (MPI_Gather(&table->stats->r_access, 1, MPI_INT, r_access, 1, MPI_INT, 0,
                  table->communicator) != 0)
-    return DHT_MPI_ERROR;
+    return DHT_UCX_ERROR;
   if (MPI_Reduce(&table->stats->r_access, &sum_r_access, 1, MPI_INT, MPI_SUM, 0,
                  table->communicator) != 0)
-    return DHT_MPI_ERROR;
+    return DHT_UCX_ERROR;
   table->stats->r_access = 0;
 
   if (rank == 0)
     written_buckets = (int *)calloc(table->comm_size, sizeof(int));
   if (MPI_Reduce(table->stats->writes_local, written_buckets, table->comm_size,
                  MPI_INT, MPI_SUM, 0, table->communicator) != 0)
-    return DHT_MPI_ERROR;
+    return DHT_UCX_ERROR;
 
   if (rank == 0) { // only process with rank 0 will print out results as a
                    // table

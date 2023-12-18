@@ -37,8 +37,10 @@
 #include <sys/types.h>
 #include <ucp/api/ucp_def.h>
 
+#include "UCX_bcast_functions.h"
+
 /** Returned if some error in MPI routine occurs. */
-#define DHT_MPI_ERROR -1
+#define DHT_UCX_ERROR -1
 /** Returned by a call of DHT_read if no bucket with given key was found. */
 #define DHT_READ_MISS -2
 /** Returned by DHT_write if a bucket was evicted. */
@@ -155,21 +157,6 @@ typedef struct {
 #endif
 } DHT;
 
-#define UCX_BCAST_NOT_RUN -1
-#define UCX_BCAST_OK 0
-#define UCX_BCAST_ERR 1
-
-typedef struct ucx_ep_info {
-  ucp_address_t **worker_addr;
-  uint32_t comm_size;
-  uint32_t self_rank;
-} ucx_ep_info_t;
-
-typedef int (*ucx_worker_addr_bcast)(ucp_address_t *worker_addr_self,
-                                     uint64_t worker_addr_self_len,
-                                     const void *func_args,
-                                     ucx_ep_info_t *endpoint_info);
-
 typedef struct DHT_init {
   /** Size of the key of a bucket entry in byte. */
   int key_size;
@@ -197,39 +184,17 @@ typedef struct DHT_init {
 /*                                 int *callback_ret); */
 
 /**
- * @brief Create a DHT.
+ * @brief Creates a distributed hash table (DHT) object.
  *
- * When calling this function, the required memory is allocated and a
- * MPI_Window is created. This allows the execution of MPI_Get and
- * MPI_Put operations for one-sided communication. Then the number of
- * indexes is calculated and finally all relevant data is entered into the
- * \a DHT-object which is returned.
+ * @param init_params A pointer to a DHT_init_t structure that contains
+ * initialization parameters for the DHT.
  *
- * @param comm MPI communicator which addresses all participating process of the
- * DHT.
- * @param size_per_process Number of buckets per process.
- * @param data_size Size of data in byte.
- * @param key_size Size of the key in byte.
- * @param hash_func Pointer to a hash function. This function must take the size
- * of the key and a pointer to the key as input parameters and return a 64 bit
- * hash.
- * @return DHT* The returned value is the \a DHT-object which serves as a handle
- * for all DHT operations. If an error occured NULL is returned.
+ * @return A pointer to the DHT object, or NULL if an error occurred.
  */
 DHT *DHT_create(const DHT_init_t *init_params);
 
 /**
- * @brief Write data into DHT.
- *
- * When DHT_write is called, the address window is locked with a
- * LOCK_EXCLUSIVE for write access. Now the first bucket is received
- * using MPI_Get and it is checked if the bucket is empty or if the received key
- * matches the passed key. If this is the case, the data of the bucket is
- * overwritten with the new value. If not, the function continues with the next
- * index until no more indexes are available. When the last index is reached and
- * there are no more indexes available, the last examined bucket is replaced.
- * After successful writing, the memory window is released and the function
- * returns.
+ * @brief Writes an entry to the distributed hash table.
  *
  * @param table Pointer to the \a DHT-object.
  * @param key Pointer to the key.
@@ -237,8 +202,7 @@ DHT *DHT_create(const DHT_init_t *init_params);
  * @param proc If not NULL, returns the process number written to.
  * @param index If not NULL, returns the index of the bucket where the data was
  * written to.
- * @return int Returns either DHT_SUCCESS on success or correspondending error
- * value on eviction or error.
+ * @return DHT_SUCCESS on success, an error code otherwise.
  */
 int DHT_write(DHT *table, void *key, void *data, uint32_t *proc,
               uint32_t *index);
@@ -305,20 +269,18 @@ int DHT_to_file(DHT *table, const char *filename);
 int DHT_from_file(DHT *table, const char *filename);
 
 /**
- * @brief Free ressources of DHT.
+ * @brief Frees the memory allocated for the DHT data structure and releases
+ * the UCX resources.
  *
- * Finally, to free all resources after using the DHT, the function
- * DHT_free must be used. This will free the MPI\_Window, as well as the
- * associated memory. Also all internal variables are released. Optionally, the
- * count of evictions and read misses can also be obtained.
+ * @param table A pointer to the DHT data structure.
+ * @param eviction_counter A pointer to a variable that will receive the total
+ * number of evictions that occurred during the lifetime of the DHT.
+ * @param readerror_counter A pointer to a variable that will receive the total
+ * number of read errors that occurred during the lifetime of the DHT.
+ * @param chksum_retries A pointer to a variable that will receive the total
+ * number of times the checksum verification failed during a write operation.
  *
- * @param table Pointer to the \a DHT-object.
- * @param eviction_counter \a optional: Pointer to integer where the count of
- * evictions should be stored.
- * @param readerror_counter \a optional: Pointer to integer where the count of
- * read errors should be stored.
- * @return int Returns either DHT_SUCCESS on success or DHT_MPI_ERROR on
- * internal MPI error.
+ * @return UCS_OK on success, or an error code on failure.
  */
 int DHT_free(DHT *table, uint64_t *eviction_counter,
              uint64_t *readerror_counter, uint64_t *chksum_retries);
@@ -344,11 +306,17 @@ int DHT_free(DHT *table, uint64_t *eviction_counter,
  * need to define DHT_STATISTICS to the compiler macros to use this
  * function (eg. <emph>gcc -DDHT_STATISTICS ... </emph>).
  * @param table Pointer to the \a DHT-object.
- * @return int Returns DHT_SUCCESS on success or DHT_MPI_ERROR on internal MPI
+ * @return int Returns DHT_SUCCESS on success or DHT_UCX_ERROR on internal MPI
  * error.
  */
 int DHT_print_statistics(DHT *table);
 
+/**
+ * Synchronizes all processes in the DHT communicator.
+ *
+ * @param table The DHT object.
+ * @return UCS_OK if the barrier was successful, or an error code if it failed.
+ */
 int DHT_barrier(DHT *table);
 
 #if defined(c_plusplus) || defined(__cplusplus)
