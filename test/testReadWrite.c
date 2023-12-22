@@ -39,6 +39,8 @@ int main(int argc, char **argv) {
                             .bcast_func_args = &mpi_bcast_params};
 
   DHT *object = DHT_create(&init_params);
+  printf("%d: DHT created\n", rank);
+  fflush(stdout);
 
   if (object == NULL) {
     fprintf(stderr, "Error while creating DHT. Aborting ...\n");
@@ -56,6 +58,10 @@ int main(int argc, char **argv) {
   }
 
   DHT_barrier(object);
+  printf("Leaving second barrier.\n");
+  fflush(stdout);
+
+  MPI_Barrier(MPI_COMM_WORLD);
 
   key = (rank + 1) % comm_size;
 

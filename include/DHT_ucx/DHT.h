@@ -94,15 +94,24 @@ struct ucx_handle_lock {
   int rank;
 };
 
-typedef struct ucx_handle {
+struct ucx_c_w_ep_handle {
   ucp_context_h ucp_context;
   ucp_worker_h ucp_worker;
   ucp_ep_h *ep_list;
+};
+
+struct ucx_rma_handle {
+  struct ucx_c_w_ep_handle c_w_ep_h;
   ucp_mem_h mem_h;
   uint64_t local_mem_addr;
   uint64_t *remote_addr;
   void **rkey_buffer;
   ucp_rkey_h *rkey_handles;
+};
+
+typedef struct ucx_handle {
+  struct ucx_c_w_ep_handle ptp_h;
+  struct ucx_rma_handle rma_h;
   struct ucx_handle_lock lock_h;
   uint32_t lock_size;
   uint32_t comm_size;

@@ -19,9 +19,6 @@
 #include <DHT_ucx/DHT.h>
 #include <mpi.h>
 
-#include <inttypes.h>
-#include <math.h>
-#include <setjmp.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -124,7 +121,7 @@ DHT *DHT_create(const DHT_init_t *init_params) {
     goto err_after_object;
   }
 
-  status = ucx_init_remote_memory(object->ucx_h, size_of_dht);
+  status = ucx_init_rma(object->ucx_h, size_of_dht);
   if (unlikely(status != UCS_OK)) {
     goto err_after_ucx_init;
   }
@@ -191,7 +188,9 @@ DHT *DHT_create(const DHT_init_t *init_params) {
   return object;
 
 err_after_ucx_init:
-  ucx_releaseEndpoints(object->ucx_h);
+  ucx_releaseEndpoints(&object->ucx_h->ptp_h, object->ucx_h->comm_size);
+  ucx_releaseEndpoints(&object->ucx_h->rma_h.c_w_ep_h,
+                       object->ucx_h->comm_size);
   ucx_finalize(object->ucx_h);
   free(object->ucx_h);
 err_after_object:
@@ -667,11 +666,9 @@ int DHT_free(DHT *table, uint64_t *eviction_counter,
 
   ucs_status_t status;
 
-  status = ucx_barrier(table->ucx_h);
-
-  if (status != UCS_OK) {
-    return status;
-  }
+  // if (status != UCS_OK) {
+  //   return status;
+  // }
 
   if (eviction_counter != NULL) {
     buf = table->evictions;
@@ -680,6 +677,7 @@ int DHT_free(DHT *table, uint64_t *eviction_counter,
     }
     *eviction_counter = buf;
   }
+
   if (readerror_counter != NULL) {
     buf = table->read_misses;
     if (UCS_OK != ucx_reduce_sum(table->ucx_h, &buf, 0)) {
@@ -694,12 +692,17 @@ int DHT_free(DHT *table, uint64_t *eviction_counter,
     }
     *chksum_retries = buf;
   }
+  status = ucx_barrier(table->ucx_h);
+  printf("Leaving last barrier\n");
+  fflush(stdout);
+
   status = ucx_free_mem(table->ucx_h);
   if (unlikely(status != UCS_OK)) {
     return status;
   }
 
-  ucx_releaseEndpoints(table->ucx_h);
+  ucx_releaseEndpoints(&table->ucx_h->rma_h.c_w_ep_h, table->ucx_h->comm_size);
+  ucx_releaseEndpoints(&table->ucx_h->ptp_h, table->ucx_h->comm_size);
   ucx_finalize(table->ucx_h);
 
   free(table->recv_entry);
