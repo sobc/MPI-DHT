@@ -141,20 +141,20 @@ DHT *DHT_create(const DHT_init_t *init_params) {
   object->recv_entry =
       malloc(1 + object->data_size + object->key_size + sizeof(uint32_t));
   if (unlikely(object->recv_entry == NULL)) {
-    goto err_after_ucx_init;
+    goto err_after_mem_init;
   }
   object->send_entry =
       malloc(1 + object->data_size + object->key_size + sizeof(uint32_t));
   if (unlikely(object->send_entry == NULL)) {
     free(object->recv_entry);
-    goto err_after_ucx_init;
+    goto err_after_mem_init;
   }
   object->index_count = 8 - (get_index_bytes(init_params->bucket_count) - 1);
   object->index = (uint64_t *)malloc((object->index_count) * sizeof(uint64_t));
   if (unlikely(object->index == NULL)) {
     free(object->recv_entry);
     free(object->send_entry);
-    goto err_after_ucx_init;
+    goto err_after_mem_init;
   }
 
   // if set, initialize dht_stats
@@ -187,10 +187,9 @@ DHT *DHT_create(const DHT_init_t *init_params) {
 
   return object;
 
+err_after_mem_init:
+  ucx_free_mem(object->ucx_h);
 err_after_ucx_init:
-  ucx_releaseEndpoints(&object->ucx_h->ptp_h, object->ucx_h->comm_size);
-  ucx_releaseEndpoints(&object->ucx_h->rma_h.c_w_ep_h,
-                       object->ucx_h->comm_size);
   ucx_finalize(object->ucx_h);
   free(object->ucx_h);
 err_after_object:
@@ -693,16 +692,15 @@ int DHT_free(DHT *table, uint64_t *eviction_counter,
     *chksum_retries = buf;
   }
   status = ucx_barrier(table->ucx_h);
-  printf("Leaving last barrier\n");
-  fflush(stdout);
+  if (status != UCS_OK) {
+    return status;
+  }
 
   status = ucx_free_mem(table->ucx_h);
   if (unlikely(status != UCS_OK)) {
     return status;
   }
 
-  ucx_releaseEndpoints(&table->ucx_h->rma_h.c_w_ep_h, table->ucx_h->comm_size);
-  ucx_releaseEndpoints(&table->ucx_h->ptp_h, table->ucx_h->comm_size);
   ucx_finalize(table->ucx_h);
 
   free(table->recv_entry);
