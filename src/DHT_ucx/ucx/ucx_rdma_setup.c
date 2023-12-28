@@ -171,22 +171,28 @@ static ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h) {
 
   my_mem += ucx_h->comm_size;
 
-  for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
-    my_mem[i] = i + SOME_RANDOM_OFFSET * 2;
-  }
+  const uint32_t val_to_write = ucx_h->self_rank + SOME_RANDOM_OFFSET * 2;
+
+  // for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
+  //   my_mem[i] = i + SOME_RANDOM_OFFSET * 2;
+  // }
 
   for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
-    uint32_t validate = 0;
     // printf("%d: %d\n", ucx_h->self_rank, i);
-    do {
-      status = ucx_get_blocking(ucx_h, i,
-                                ucx_h->self_rank * sizeof(uint32_t) +
-                                    (sizeof(uint32_t) * ucx_h->comm_size),
-                                &validate, sizeof(uint32_t));
-      if (UCS_OK != status) {
-        return status;
-      }
-    } while (validate != my_mem[ucx_h->self_rank]);
+    status = ucx_put_blocking(ucx_h, i,
+                              ucx_h->self_rank * sizeof(uint32_t) +
+                                  (sizeof(uint32_t) * (ucx_h->comm_size)),
+                              &val_to_write, sizeof(uint32_t));
+    if (UCS_OK != status) {
+      return status;
+    }
+  }
+
+  // loop over comm_size
+  for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
+    while (my_mem[i] != i + SOME_RANDOM_OFFSET * 2) {
+      ucp_worker_progress(ucx_h->rma_h.c_w_ep_h.ucp_worker);
+    }
   }
 
   // for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
