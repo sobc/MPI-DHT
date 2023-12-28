@@ -43,15 +43,15 @@ ucs_status_t ucx_put_blocking(const ucx_handle_t *ucx_h, int rank,
   ucs_status_ptr_t req =
       ucx_put_nonblocking(ucx_h, rank, offset, buffer, count);
 
-  ucs_status_t status;
+  // ucs_status_t status;
 
-  status = ucx_check_and_wait_completion(ucx_h, req, CHECK_WAIT);
+  // status = ucx_check_and_wait_completion(ucx_h, req, CHECK_WAIT);
 
-  if (UCS_OK != status) {
-    return status;
-  }
+  // if (UCS_OK != status) {
+  //   return status;
+  // }
 
-  return ucx_flush_ep(ucx_h, ucx_h->rma_h.c_w_ep_h.ep_list, rank);
+  return ucx_check_and_wait_completion(ucx_h, req, CHECK_WAIT);
 }
 
 ucs_status_t ucx_get_blocking(const ucx_handle_t *ucx_h, int rank,
@@ -59,15 +59,15 @@ ucs_status_t ucx_get_blocking(const ucx_handle_t *ucx_h, int rank,
   ucs_status_ptr_t req =
       ucx_get_nonblocking(ucx_h, rank, offset, buffer, count);
 
-  ucs_status_t status;
+  // ucs_status_t status;
 
-  status = ucx_check_and_wait_completion(ucx_h, req, CHECK_WAIT);
+  // status = ucx_check_and_wait_completion(ucx_h, req, CHECK_WAIT);
 
-  if (UCS_OK != status) {
-    return status;
-  }
+  // if (UCS_OK != status) {
+  //   return status;
+  // }
 
-  return ucx_flush_ep(ucx_h, ucx_h->rma_h.c_w_ep_h.ep_list, rank);
+  return ucx_check_and_wait_completion(ucx_h, req, CHECK_WAIT);
 }
 
 ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ucx_h, int rank,
@@ -99,11 +99,11 @@ ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ucx_h, int rank,
       return status;
     }
 
-    ucs_status_t status_flush =
-        ucx_flush_ep(ucx_h, ucx_h->rma_h.c_w_ep_h.ep_list, rank);
-    if (unlikely(status_flush != UCS_OK)) {
-      return status_flush;
-    }
+    // ucs_status_t status_flush =
+    //     ucx_flush_ep(ucx_h, ucx_h->rma_h.c_w_ep_h.ep_list, rank);
+    // if (unlikely(status_flush != UCS_OK)) {
+    //   return status_flush;
+    // }
 
   } while (cswap_val != BUCKET_LOCK);
 
@@ -131,11 +131,11 @@ ucs_status_t ucx_write_release_lock(const ucx_handle_t *ucx_h) {
     return status;
   }
 
-  ucs_status_t status_flush =
-      ucx_flush_ep(ucx_h, ucx_h->rma_h.c_w_ep_h.ep_list, ucx_h->lock_h.rank);
-  if (unlikely(status_flush != UCS_OK)) {
-    return status_flush;
-  }
+  // ucs_status_t status_flush =
+  //     ucx_flush_ep(ucx_h, ucx_h->rma_h.c_w_ep_h.ep_list, ucx_h->lock_h.rank);
+  // if (unlikely(status_flush != UCS_OK)) {
+  //   return status_flush;
+  // }
 
   return UCS_OK;
 }

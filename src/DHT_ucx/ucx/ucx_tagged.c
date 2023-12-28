@@ -286,10 +286,16 @@ ucs_status_t ucx_barrier(const ucx_handle_t *ucx_h) {
 
   // printf("%d: Flushing RDMA worker\n", ucx_h->self_rank);
   // fflush(stdout);
-  status = ucx_flush_worker(ucx_h, &ucx_h->rma_h.c_w_ep_h.ucp_worker);
-  if (status != UCS_OK) {
-    return status;
-  }
+  // status = ucx_flush_worker(ucx_h, &ucx_h->rma_h.c_w_ep_h.ucp_worker);
+  // if (status != UCS_OK) {
+  //   return status;
+  // }
+
+  // // flush ptp worker
+  // status = ucx_flush_worker(ucx_h, &ucx_h->ptp_h.ucp_worker);
+  // if (status != UCS_OK) {
+  //   return status;
+  // }
 
   // status = ucx_flush_worker(ucx_h, &ucx_h->ptp_h.ucp_worker);
   // if (status != UCS_OK) {
