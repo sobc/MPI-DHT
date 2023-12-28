@@ -671,6 +671,11 @@ int DHT_free(DHT *table, uint64_t *eviction_counter,
   //   return status;
   // }
 
+  status = ucx_barrier(table->ucx_h);
+  if (status != UCS_OK) {
+    return status;
+  }
+
   if (eviction_counter != NULL) {
     buf = table->evictions;
     if (UCS_OK != ucx_reduce_sum(table->ucx_h, &buf, 0)) {
@@ -693,11 +698,6 @@ int DHT_free(DHT *table, uint64_t *eviction_counter,
     }
     *chksum_retries = buf;
   }
-  status = ucx_barrier(table->ucx_h);
-  if (status != UCS_OK) {
-    return status;
-  }
-
   status = ucx_free_mem(table->ucx_h);
   if (unlikely(status != UCS_OK)) {
     return status;
