@@ -36,7 +36,6 @@ static ucs_status_t ucx_createMemory(ucp_context_h context, uint64_t size,
     return status;
   }
 
-  memset(mem_attr.address, '\0', size);
   *local_mem = (uint64_t)mem_attr.address;
 
   return UCS_OK;
@@ -230,6 +229,9 @@ ucs_status_t ucx_init_rma(ucx_handle_t *ucx_h, uint64_t mem_size) {
   if (unlikely(status != UCS_OK)) {
     goto err_release_memory;
   }
+
+  memset((void *)ucx_h->rma_h.local_mem_addr, '\0', mem_size);
+
   // printf("After post-recv\n");
   // fflush(stdout);
 
