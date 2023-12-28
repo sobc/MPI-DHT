@@ -93,13 +93,15 @@ DHT *DHT_create(const DHT_init_t *init_params) {
 
   ucs_status_t status;
 
-  const uint64_t bucket_size =
+  uint64_t bucket_size =
       2 * sizeof(uint32_t) + init_params->data_size + init_params->key_size + 1;
+
 #ifdef DHT_WITH_LOCKING
   uint8_t padding = bucket_size % sizeof(uint32_t);
   if (!!padding) {
     padding = sizeof(uint32_t) - padding;
   }
+  bucket_size += padding;
 #else
   uint8_t padding = 0;
 #endif
