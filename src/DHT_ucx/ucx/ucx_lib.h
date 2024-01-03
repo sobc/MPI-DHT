@@ -17,6 +17,9 @@
 #define CHECK_NO_WAIT 0
 #define CHECK_WAIT 1
 
+#define UCX_PROGRESS_RMA 0
+#define UCX_PROGRESS_TAG 1
+
 ucx_handle_t *ucx_init(ucx_worker_addr_bcast func_bcast, const void *func_args,
                        int *func_ret);
 
@@ -48,10 +51,13 @@ ucs_status_t ucx_get_blocking(const ucx_handle_t *ucx_h, int rank,
                               uint64_t offset, void *buffer, uint64_t count);
 
 ucs_status_t ucx_check_and_wait_completion(const ucx_handle_t *ucx_h,
-                                           ucs_status_ptr_t *request, int imm);
+                                           ucs_status_ptr_t *request, int imm,
+                                           const ucp_worker_h *worker,
+                                           uint8_t worker_arr_size);
 
 ucs_status_t ucx_flush_ep(const ucx_handle_t *ucx_h, const ucp_ep_h *ep_list,
-                          int rank);
+                          int rank, const ucp_worker_h *worker,
+                          uint8_t worker_arr_size);
 
 ucs_status_t ucx_flush_worker(const ucx_handle_t *ucx_h,
                               const ucp_worker_h *worker);

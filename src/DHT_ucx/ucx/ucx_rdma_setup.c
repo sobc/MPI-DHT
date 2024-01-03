@@ -3,7 +3,6 @@
 #include "ucx_lib.h"
 
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ucp/api/ucp.h>
@@ -43,8 +42,8 @@ static ucs_status_t ucx_createMemory(ucp_context_h context, uint64_t size,
 
 #define FREE_ALREADY_ALLOCATED_ENTRIES(last, self, arr)                        \
   do {                                                                         \
-    for (uint32_t j = last; j >= 0; j--) {                                     \
-      if (j != self) {                                                         \
+    for (int32_t j = last; j >= 0; j--) {                                      \
+      if (j != (int32_t)self) {                                                \
         free(arr[j]);                                                          \
       }                                                                        \
     }                                                                          \
@@ -145,7 +144,6 @@ err_local_rem_addr:
 }
 
 static ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h) {
-  uint32_t data;
   ucs_status_t status;
 
   uint32_t *my_mem = (uint32_t *)(ucx_h->rma_h.local_mem_addr);
@@ -156,7 +154,6 @@ static ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h) {
 
   for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
     uint32_t validate = 0;
-    // printf("%d: %d\n", ucx_h->self_rank, i);
     do {
       status = ucx_get_blocking(ucx_h, i, ucx_h->self_rank * sizeof(uint32_t),
                                 &validate, sizeof(uint32_t));
@@ -166,19 +163,11 @@ static ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h) {
     } while (validate != my_mem[ucx_h->self_rank]);
   }
 
-  // printf("%d: Left first post-recv loop\n", ucx_h->self_rank);
-  // fflush(stdout);
-
   my_mem += ucx_h->comm_size;
 
   const uint32_t val_to_write = ucx_h->self_rank + SOME_RANDOM_OFFSET * 2;
 
-  // for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
-  //   my_mem[i] = i + SOME_RANDOM_OFFSET * 2;
-  // }
-
   for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
-    // printf("%d: %d\n", ucx_h->self_rank, i);
     status = ucx_put_blocking(ucx_h, i,
                               ucx_h->self_rank * sizeof(uint32_t) +
                                   (sizeof(uint32_t) * (ucx_h->comm_size)),
@@ -194,13 +183,6 @@ static ucs_status_t ucx_initPostRecv(const ucx_handle_t *ucx_h) {
       ucp_worker_progress(ucx_h->rma_h.c_w_ep_h.ucp_worker);
     }
   }
-
-  // for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
-  //   uint32_t *validate = (uint32_t *)(ucx_h->rma_h.local_mem_addr) + i;
-  //   do {
-  //     ucp_worker_progress(ucx_h->rma_h.c_w_ep_h.ucp_worker);
-  //   } while (*validate != i);
-  // }
 
   return UCS_OK;
 }
@@ -220,31 +202,18 @@ ucs_status_t ucx_init_rma(ucx_handle_t *ucx_h, uint64_t mem_size) {
     return status;
   }
 
-  // printf("After exchange of rkeys\n");
-  // fflush(stdout);
-
   status = ucx_barrier(ucx_h);
   if (unlikely(status != UCS_OK)) {
     goto err_release_memory;
   }
-
-  // printf("After first barrier\n");
-  // fflush(stdout);
 
   status = ucx_initPostRecv(ucx_h);
   if (unlikely(status != UCS_OK)) {
     goto err_release_memory;
   }
 
+  // set memory to zero as PostRecv initialization has written to it
   memset((void *)ucx_h->rma_h.local_mem_addr, '\0', mem_size);
-
-  // printf("After post-recv\n");
-  // fflush(stdout);
-
-  // status = ucx_barrier(ucx_h);
-  // if (unlikely(status != UCS_OK)) {
-  //   goto err_release_memory;
-  // }
 
   return status;
 

@@ -667,10 +667,6 @@ int DHT_free(DHT *table, uint64_t *eviction_counter,
 
   ucs_status_t status;
 
-  // if (status != UCS_OK) {
-  //   return status;
-  // }
-
   status = ucx_barrier(table->ucx_h);
   if (status != UCS_OK) {
     return status;
