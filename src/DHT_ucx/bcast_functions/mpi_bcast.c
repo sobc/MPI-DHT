@@ -43,8 +43,8 @@ int ucx_worker_bcast_mpi(ucp_address_t *worker_addr_self,
              worker_addr_len_casted);
     }
 
-    status = MPI_Bcast(endpoint_info->worker_addr[i], worker_addr_len_casted,
-                       MPI_BYTE, i, mpi_args->comm);
+    status = MPI_Bcast(endpoint_info->worker_addr[i], addr_lengths[i], MPI_BYTE,
+                       i, mpi_args->comm);
     if (unlikely(status != MPI_SUCCESS)) {
       return UCX_BCAST_ERR;
     }
