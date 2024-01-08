@@ -50,10 +50,10 @@ ucs_status_t ucx_put_blocking(const ucx_handle_t *ucx_h, int rank,
 ucs_status_t ucx_get_blocking(const ucx_handle_t *ucx_h, int rank,
                               uint64_t offset, void *buffer, uint64_t count);
 
-ucs_status_t ucx_check_and_wait_completion(const ucx_handle_t *ucx_h,
-                                           ucs_status_ptr_t *request, int imm,
-                                           const ucp_worker_h *worker,
-                                           uint8_t worker_arr_size);
+// ucs_status_t ucx_check_and_wait_completion(const ucx_handle_t *ucx_h,
+//                                            ucs_status_ptr_t *request, int
+//                                            imm, const ucp_worker_h *worker,
+//                                            uint8_t worker_arr_size);
 
 ucs_status_t ucx_flush_ep(const ucx_handle_t *ucx_h, const ucp_ep_h *ep_list,
                           int rank, const ucp_worker_h *worker,
@@ -77,5 +77,32 @@ ucs_status_t ucx_tagged_send(const ucx_handle_t *ucx_h, uint32_t dest,
 
 ucs_status_t ucx_tagged_recv(const ucx_handle_t *ucx_h, uint32_t src, void *buf,
                              uint64_t msg_size, uint32_t msg_tag);
+
+static inline ucs_status_t
+ucx_check_and_wait_completion(ucs_status_ptr_t *request, int imm,
+                              const ucp_worker_h *worker,
+                              uint8_t worker_arr_size) {
+  if (unlikely(UCS_PTR_IS_ERR(request))) {
+    return UCS_PTR_STATUS(request);
+  }
+  if (request != NULL) {
+    ucs_status_t status = UCS_OK;
+    if (!!imm) {
+      do {
+        for (uint8_t i = 0; i < worker_arr_size; i++) {
+          ucp_worker_progress(worker[i]);
+        }
+        status = ucp_request_check_status(request);
+      } while (status == UCS_INPROGRESS);
+    }
+    ucp_request_free(request);
+
+    if (status != UCS_OK) {
+      return status;
+    }
+  }
+
+  return UCS_OK;
+}
 
 #endif // UCX_LIB_H_

@@ -47,7 +47,7 @@ ucs_status_t ucx_put_blocking(const ucx_handle_t *ucx_h, int rank,
 
   ucs_status_t status;
 
-  status = ucx_check_and_wait_completion(ucx_h, req, CHECK_WAIT,
+  status = ucx_check_and_wait_completion(req, CHECK_WAIT,
                                          &ucx_h->rma_h.c_w_ep_h.ucp_worker, 1);
 
   if (UCS_OK != status) {
@@ -67,7 +67,7 @@ ucs_status_t ucx_get_blocking(const ucx_handle_t *ucx_h, int rank,
 
   ucs_status_t status;
 
-  status = ucx_check_and_wait_completion(ucx_h, req, CHECK_WAIT,
+  status = ucx_check_and_wait_completion(req, CHECK_WAIT,
                                          &ucx_h->rma_h.c_w_ep_h.ucp_worker, 1);
 
   if (UCS_OK != status) {
@@ -106,7 +106,7 @@ ucs_status_t ucx_write_acquire_lock(ucx_handle_t *ucx_h, int rank,
         &cswap_param);
 
     ucs_status_t status = ucx_check_and_wait_completion(
-        ucx_h, request, CHECK_WAIT, &ucx_h->rma_h.c_w_ep_h.ucp_worker, 1);
+        request, CHECK_WAIT, &ucx_h->rma_h.c_w_ep_h.ucp_worker, 1);
     if (unlikely(status != UCS_OK)) {
       return status;
     }
@@ -140,7 +140,7 @@ ucs_status_t ucx_write_release_lock(const ucx_handle_t *ucx_h) {
       ucx_h->rma_h.rkey_handles[ucx_h->lock_h.rank], &add_param);
 
   ucs_status_t status = ucx_check_and_wait_completion(
-      ucx_h, request, CHECK_WAIT, &ucx_h->rma_h.c_w_ep_h.ucp_worker, 1);
+      request, CHECK_WAIT, &ucx_h->rma_h.c_w_ep_h.ucp_worker, 1);
   if (unlikely(status != UCS_OK)) {
     return status;
   }

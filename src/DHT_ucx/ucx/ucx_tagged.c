@@ -26,8 +26,7 @@ ucs_status_t ucx_tagged_send(const ucx_handle_t *ucx_h, uint32_t dest,
   request = ucp_tag_send_nbx(ucx_h->ptp_h.ep_list[dest], msg, msg_size,
                              expected_tag, &tag_param);
 
-  status =
-      ucx_check_and_wait_completion(ucx_h, request, CHECK_WAIT, worker_list, 2);
+  status = ucx_check_and_wait_completion(request, CHECK_WAIT, worker_list, 2);
   if (UCS_OK != status) {
     return status;
   }
@@ -74,11 +73,8 @@ ucs_status_t ucx_tagged_recv(const ucx_handle_t *ucx_h, uint32_t src, void *buf,
 ucs_status_t ucx_broadcast(const ucx_handle_t *ucx_h, uint64_t root, void *msg,
                            uint64_t msg_size, uint32_t msg_tag) {
   ucs_status_t status = UCS_OK;
-  uint64_t expected_tag = root << 32 | msg_tag;
 
   if (root == ucx_h->self_rank) {
-
-    ucs_status_ptr_t requests[ucx_h->comm_size];
 
     for (uint32_t i = 0; i < ucx_h->comm_size; i++) {
       if (i == ucx_h->self_rank) {
