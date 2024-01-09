@@ -20,8 +20,8 @@
 #define UCX_PROGRESS_RMA 0
 #define UCX_PROGRESS_TAG 1
 
-ucx_handle_t *ucx_init(ucx_worker_addr_bcast func_bcast, const void *func_args,
-                       int *func_ret);
+ucx_handle_t *ucx_init(ucx_worker_addr_bootstrap func_bcast,
+                       const void *func_args, int *func_ret);
 
 ucs_status_t ucx_init_rma(ucx_handle_t *ucx_h, uint64_t mem_size);
 

@@ -20,24 +20,25 @@ typedef struct ucx_ep_info {
   uint32_t self_rank;
 } ucx_ep_info_t;
 
-typedef int (*ucx_worker_addr_bcast)(ucp_address_t *worker_addr_self,
-                                     uint64_t worker_addr_self_len,
-                                     const void *func_args,
-                                     ucx_ep_info_t *endpoint_info);
+typedef int (*ucx_worker_addr_bootstrap)(ucp_address_t *worker_addr_self,
+                                         uint64_t worker_addr_self_len,
+                                         const void *func_args,
+                                         ucx_ep_info_t *endpoint_info);
 
 // define init function by MPI here
 typedef struct ucx_ep_args_mpi {
   MPI_Comm comm;
 } ucx_ep_args_mpi_t;
 
-int ucx_worker_bcast_mpi(ucp_address_t *worker_addr_self,
-                         uint64_t worker_addr_self_len, const void *func_args,
-                         ucx_ep_info_t *endpoint_info);
+int ucx_worker_bootstrap_mpi(ucp_address_t *worker_addr_self,
+                             uint64_t worker_addr_self_len,
+                             const void *func_args,
+                             ucx_ep_info_t *endpoint_info);
 
 #if defined(c_plusplus) || defined(__cplusplus)
 }
 #endif
 
-#define UCX_INIT_BCAST_MPI ucx_worker_bcast_mpi
+#define UCX_INIT_BSTRAP_MPI ucx_worker_bootstrap_mpi
 
 #endif // UCX_BCAST_FUNCTIONS_H_

@@ -5,20 +5,20 @@ add_library(ucx_communication ${UCX_SRC})
 target_link_libraries(ucx_communication PUBLIC MPI::MPI_C ucx::ucp ucx::ucs)
 target_include_directories(ucx_communication PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
-file(GLOB BCAST_SRC "bcast_functions/*.c")
-add_library(bcast_functions ${BCAST_SRC})
-target_link_libraries(bcast_functions PUBLIC MPI::MPI_C ucx::ucp)
-target_include_directories(bcast_functions PUBLIC ${PROJECT_SOURCE_DIR}/include)
+file(GLOB BSTRAP_SRC "bootstrap_funcs/*.c")
+add_library(bstrap_functions ${BSTRAP_SRC})
+target_link_libraries(bstrap_functions PUBLIC MPI::MPI_C ucx::ucp)
+target_include_directories(bstrap_functions PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
 if (DHT_WITH_UCX)
   add_library(DHT_UCX DHT.c)
 
-  target_link_libraries(DHT_UCX PUBLIC MPI::MPI_C ucx_communication bcast_functions)
+  target_link_libraries(DHT_UCX PUBLIC MPI::MPI_C ucx_communication bstrap_functions)
   target_include_directories(DHT_UCX PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
   add_library(DHT_UCX_LOCKING DHT.c)
 
-  target_link_libraries(DHT_UCX_LOCKING PUBLIC MPI::MPI_C ucx_communication bcast_functions)
+  target_link_libraries(DHT_UCX_LOCKING PUBLIC MPI::MPI_C ucx_communication bstrap_functions)
   target_include_directories(DHT_UCX_LOCKING PUBLIC ${PROJECT_SOURCE_DIR}/include)
   target_compile_definitions(DHT_UCX_LOCKING PRIVATE DHT_WITH_LOCKING)
 endif()

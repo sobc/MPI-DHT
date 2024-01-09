@@ -7,9 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-int ucx_worker_bcast_mpi(ucp_address_t *worker_addr_self,
-                         uint64_t worker_addr_self_len, const void *func_args,
-                         ucx_ep_info_t *endpoint_info) {
+int ucx_worker_bootstrap_mpi(ucp_address_t *worker_addr_self,
+                             uint64_t worker_addr_self_len,
+                             const void *func_args,
+                             ucx_ep_info_t *endpoint_info) {
   int status;
   int comm_size;
   int rank;

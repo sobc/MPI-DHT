@@ -176,7 +176,7 @@ typedef struct DHT_init {
   /** Pointer to a hashfunction. */
   uint64_t (*hash_func)(int, const void *);
   /** Pointer to broadcast function */
-  ucx_worker_addr_bcast bcast_func;
+  ucx_worker_addr_bootstrap bcast_func;
   /** pointer to broadcast function arguments */
   const void *bcast_func_args;
 } DHT_init_t;

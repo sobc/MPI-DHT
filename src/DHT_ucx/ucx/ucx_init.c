@@ -100,7 +100,7 @@ static inline void ucx_free_ep_info(ucx_ep_info_t *ep_info) {
   free(ep_info->worker_addr);
 }
 
-static ucs_status_t ucx_init_ctx_worker_ep(ucx_worker_addr_bcast func_bcast,
+static ucs_status_t ucx_init_ctx_worker_ep(ucx_worker_addr_bootstrap func_bcast,
                                            const void *func_args, int *func_ret,
                                            uint64_t ctx_features,
                                            uint64_t estimated_num_eps,
@@ -156,8 +156,8 @@ static ucs_status_t ucx_init_ctx_worker_ep(ucx_worker_addr_bcast func_bcast,
   return status;
 }
 
-ucx_handle_t *ucx_init(ucx_worker_addr_bcast func_bcast, const void *func_args,
-                       int *func_ret) {
+ucx_handle_t *ucx_init(ucx_worker_addr_bootstrap func_bcast,
+                       const void *func_args, int *func_ret) {
   ucs_status_t status;
 
   ucx_handle_t *ucx_h;
