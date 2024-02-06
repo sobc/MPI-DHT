@@ -837,6 +837,7 @@ int DHT_print_statistics(DHT *table) {
 #endif
 }
 
+#ifdef DHT_DISTRIBUTION
 #define free_already_allocated(dist, j)                                        \
   do {                                                                         \
     for (int i = 0; i < j; i++) {                                              \
@@ -869,16 +870,17 @@ static int gather_distribution_master(uint64_t **distribution, DHT *table) {
   }
   return DHT_SUCCESS;
 }
+#endif
 
-int DHT_gather_distribution(DHT *table, uint64_t **distribution) {
+int DHT_gather_distribution(DHT *table, uint64_t ***distribution) {
 #ifdef DHT_DISTRIBUTION
   if (table->ucx_h->self_rank == 0) {
-    distribution =
+    *distribution =
         (uint64_t **)calloc(table->ucx_h->comm_size, sizeof(uint64_t *));
     if (unlikely(distribution == NULL)) {
       return DHT_NO_MEM;
     }
-    return gather_distribution_master(distribution, table);
+    return gather_distribution_master(*distribution, table);
   }
 
   ucs_status_t status = ucx_tagged_send(
