@@ -323,7 +323,7 @@ int DHT_print_statistics(DHT *table);
  */
 int DHT_barrier(DHT *table);
 
-int DHT_gather_distribution(DHT *table, uint64_t ***distribution);
+int DHT_gather_distribution(DHT *table, uint64_t ***distribution, int reset);
 
 inline void DHT_free_distribution(DHT *table, uint64_t **distribution) {
   for (uint32_t i = 0; i < table->ucx_h->comm_size; i++) {

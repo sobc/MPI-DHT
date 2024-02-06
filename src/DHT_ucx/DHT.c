@@ -961,7 +961,7 @@ static int gather_distribution_master(uint64_t **distribution, DHT *table) {
 }
 #endif
 
-int DHT_gather_distribution(DHT *table, uint64_t ***distribution) {
+int DHT_gather_distribution(DHT *table, uint64_t ***distribution, int reset) {
 #ifdef DHT_DISTRIBUTION
   if (table->ucx_h->self_rank == 0) {
     *distribution =
@@ -969,15 +969,25 @@ int DHT_gather_distribution(DHT *table, uint64_t ***distribution) {
     if (unlikely(distribution == NULL)) {
       return DHT_NO_MEM;
     }
-    return gather_distribution_master(*distribution, table);
+
+    ucs_status_t status = gather_distribution_master(*distribution, table);
+    if (unlikely(status != UCS_OK)) {
+      return DHT_UCX_ERROR;
+    }
+  } else {
+    ucs_status_t status = ucx_tagged_send(
+        table->ucx_h, 0, table->access_distribution,
+        table->ucx_h->comm_size * sizeof(uint64_t), table->ucx_h->self_rank);
+    if (unlikely(status != UCS_OK)) {
+      return DHT_UCX_ERROR;
+    }
   }
 
-  ucs_status_t status = ucx_tagged_send(
-      table->ucx_h, 0, table->access_distribution,
-      table->ucx_h->comm_size * sizeof(uint64_t), table->ucx_h->self_rank);
-  if (unlikely(status != UCS_OK)) {
-    return DHT_UCX_ERROR;
+  if (reset) {
+    memset(table->access_distribution, 0,
+           table->ucx_h->comm_size * sizeof(uint64_t));
   }
+
   return DHT_SUCCESS;
 
 #else
