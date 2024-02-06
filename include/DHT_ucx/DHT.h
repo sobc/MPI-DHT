@@ -57,6 +57,10 @@
 /** Returned by DHT file operations if error occured in MPI_Write operation. */
 #define DHT_FILE_WRITE_ERROR -14
 
+#define DHT_NO_MEM -15
+
+#define DHT_NOT_IMPLEMENTED -32
+
 /** Size of the file header in byte. */
 #define DHT_FILEHEADER_SIZE 8
 
@@ -151,6 +155,9 @@ typedef struct {
     /** How many calls of DHT_read() did this process? */
     int r_access;
   } stats;
+#endif
+#ifdef DHT_DISTRIBUTION
+  uint64_t *access_distribution;
 #endif
 } DHT;
 
@@ -315,6 +322,15 @@ int DHT_print_statistics(DHT *table);
  * @return UCS_OK if the barrier was successful, or an error code if it failed.
  */
 int DHT_barrier(DHT *table);
+
+int DHT_gather_distribution(DHT *table, uint64_t **distribution);
+
+inline void DHT_free_distribution(DHT *table, uint64_t **distribution) {
+  for (uint32_t i = 0; i < table->ucx_h->comm_size; i++) {
+    free(distribution[i]);
+  }
+  free(distribution);
+}
 
 #if defined(c_plusplus) || defined(__cplusplus)
 }

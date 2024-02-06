@@ -166,7 +166,6 @@ DHT *DHT_create(const DHT_init_t *init_params) {
     free(object->recv_entry);
     free(object->send_entry);
     free(object->index);
-    free(object->stats);
     goto err_after_ucx_init;
   }
   object->stats.old_writes = 0;
@@ -174,6 +173,18 @@ DHT *DHT_create(const DHT_init_t *init_params) {
   object->stats.evictions = 0;
   object->stats.w_access = 0;
   object->stats.r_access = 0;
+#endif
+
+#ifdef DHT_DISTRIBUTION
+  object->access_distribution =
+      (uint64_t *)calloc(object->ucx_h->comm_size, sizeof(uint64_t));
+
+  if (unlikely(object->access_distribution == NULL)) {
+    free(object->recv_entry);
+    free(object->send_entry);
+    free(object->index);
+    goto err_after_ucx_init;
+  }
 #endif
 
   return object;
@@ -329,6 +340,10 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   memcpy((char *)table->send_entry + table->data_size + table->key_size + 1,
          &chksum, sizeof(uint32_t));
 
+#ifdef DHT_DISTRIBUTION
+  table->access_distribution[dest_rank]++;
+#endif
+
   // loop through the index array, checking for an available bucket
   for (curr_index = 0; curr_index < table->index_count; curr_index++) {
     // get the contents of the destination bucket
@@ -424,6 +439,10 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
   // determine destination rank and index by hash of key
   determine_dest(hash, table->ucx_h->comm_size, table->bucket_count, &dest_rank,
                  table->index, table->index_count);
+
+#ifdef DHT_DISTRIBUTION
+  table->access_distribution[dest_rank]++;
+#endif
 
   ucs_status_t status;
 
@@ -695,9 +714,13 @@ int DHT_free(DHT *table, uint64_t *eviction_counter,
   free(table->index);
 
 #ifdef DHT_STATISTICS
-  free(table->stats->writes_local);
-  free(table->stats);
+  free(table->stats.writes_local);
 #endif
+
+#ifdef DHT_DISTRIBUTION
+  free(table->access_distribution);
+#endif
+
   free(table);
 
   return DHT_SUCCESS;
@@ -809,5 +832,64 @@ int DHT_print_statistics(DHT *table) {
 
   MPI_Barrier(table->communicator);
   return DHT_SUCCESS;
+#else
+  return DHT_NOT_IMPLEMENTED;
+#endif
+}
+
+#define free_already_allocated(dist, j)                                        \
+  do {                                                                         \
+    for (int i = 0; i < j; i++) {                                              \
+      free(dist[i]);                                                           \
+    }                                                                          \
+    free(dist);                                                                \
+  } while (0)
+
+static int gather_distribution_master(uint64_t **distribution, DHT *table) {
+  for (uint32_t i = 0; i < table->ucx_h->comm_size; i++) {
+    distribution[i] =
+        (uint64_t *)calloc(table->ucx_h->comm_size, sizeof(uint64_t));
+    if (unlikely(distribution[i] == NULL)) {
+      free_already_allocated(distribution, i - 1);
+      return DHT_NO_MEM;
+    }
+    if (i == table->ucx_h->self_rank) {
+      memcpy(distribution[i], table->access_distribution,
+             table->ucx_h->comm_size * sizeof(uint64_t));
+      continue;
+    }
+
+    ucs_status_t status =
+        ucx_tagged_recv(table->ucx_h, i, distribution[i],
+                        table->ucx_h->comm_size * sizeof(uint64_t), i);
+    if (unlikely(status != UCS_OK)) {
+      free_already_allocated(distribution, i);
+      return DHT_UCX_ERROR;
+    }
+  }
+  return DHT_SUCCESS;
+}
+
+int DHT_gather_distribution(DHT *table, uint64_t **distribution) {
+#ifdef DHT_DISTRIBUTION
+  if (table->ucx_h->self_rank == 0) {
+    distribution =
+        (uint64_t **)calloc(table->ucx_h->comm_size, sizeof(uint64_t *));
+    if (unlikely(distribution == NULL)) {
+      return DHT_NO_MEM;
+    }
+    return gather_distribution_master(distribution, table);
+  }
+
+  ucs_status_t status = ucx_tagged_send(
+      table->ucx_h, 0, table->access_distribution,
+      table->ucx_h->comm_size * sizeof(uint64_t), table->ucx_h->self_rank);
+  if (unlikely(status != UCS_OK)) {
+    return DHT_UCX_ERROR;
+  }
+  return DHT_SUCCESS;
+
+#else
+  return DHT_NOT_IMPLEMENTED;
 #endif
 }

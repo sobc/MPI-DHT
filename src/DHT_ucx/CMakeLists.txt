@@ -21,4 +21,10 @@ if (DHT_WITH_UCX)
   target_link_libraries(DHT_UCX_LOCKING PUBLIC MPI::MPI_C ucx_communication bstrap_functions)
   target_include_directories(DHT_UCX_LOCKING PUBLIC ${PROJECT_SOURCE_DIR}/include)
   target_compile_definitions(DHT_UCX_LOCKING PRIVATE DHT_WITH_LOCKING)
+
+  if (DHT_COLLECT_DISTRIBUTION)
+    target_compile_definitions(DHT_UCX PRIVATE DHT_DISTRIBUTION)
+    target_compile_definitions(DHT_UCX_LOCKING PRIVATE DHT_DISTRIBUTION)
+  endif()
+
 endif()
