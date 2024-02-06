@@ -340,10 +340,6 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   memcpy((char *)table->send_entry + table->data_size + table->key_size + 1,
          &chksum, sizeof(uint32_t));
 
-#ifdef DHT_DISTRIBUTION
-  table->access_distribution[dest_rank]++;
-#endif
-
   // loop through the index array, checking for an available bucket
   for (curr_index = 0; curr_index < table->index_count; curr_index++) {
     // get the contents of the destination bucket
@@ -353,6 +349,10 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
                       table->data_displacement),
         table->recv_entry,
         table->data_size + table->key_size + 1 + sizeof(uint32_t));
+
+#ifdef DHT_DISTRIBUTION
+    table->access_distribution[dest_rank]++;
+#endif
 
     if (status != UCS_OK) {
       return DHT_UCX_ERROR;
@@ -406,6 +406,10 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
     return DHT_UCX_ERROR;
   }
 
+#ifdef DHT_DISTRIBUTION
+  table->access_distribution[dest_rank]++;
+#endif
+
 // release the lock on the destination bucket
 #ifdef DHT_WITH_LOCKING
   if (UCS_OK != ucx_write_release_lock(table->ucx_h)) {
@@ -454,6 +458,10 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
         table->recv_entry,
         table->data_size + table->key_size + 1 + sizeof(uint32_t));
 
+#ifdef DHT_DISTRIBUTION
+    table->access_distribution[dest_rank]++;
+#endif
+
     if (status != UCS_OK) {
       return DHT_UCX_ERROR;
     }
@@ -498,6 +506,10 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
                                                 table->index[curr_index],
                                                 table->data_displacement),
                                   &invalidate, sizeof(char));
+#ifdef DHT_DISTRIBUTION
+        table->access_distribution[dest_rank]++;
+#endif
+
         if (status != UCS_OK) {
           return DHT_UCX_ERROR;
         }
