@@ -64,31 +64,6 @@
 extern "C" {
 #endif
 
-/**
- * Internal struct to store statistics about read and write accesses and also
- * read misses and evictions.
- * <b>All values will be resetted to zero after a call of
- * DHT_print_statistics().</b>
- * Internal use only!
- *
- * @todo There's maybe a better solution than DHT_print_statistics and this
- * struct
- */
-typedef struct {
-  /** Count of writes to specific process this process did. */
-  int *writes_local;
-  /** Writes after last call of DHT_print_statistics. */
-  int old_writes;
-  /** How many read misses occur? */
-  int read_misses;
-  /** How many buckets where evicted? */
-  int evictions;
-  /** How many calls of DHT_write() did this process? */
-  int w_access;
-  /** How many calls of DHT_read() did this process? */
-  int r_access;
-} DHT_stats;
-
 struct ucx_handle_lock {
   uint64_t lock_rem_addr;
   int rank;
@@ -162,7 +137,20 @@ typedef struct {
   int (*accumulate_callback)(int, void *, int, void *);
 #ifdef DHT_STATISTICS
   /** Detailed statistics of the usage of the DHT. */
-  DHT_stats *stats;
+  struct DHT_stats {
+    /** Count of writes to specific process this process did. */
+    int *writes_local;
+    /** Writes after last call of DHT_print_statistics. */
+    int old_writes;
+    /** How many read misses occur? */
+    int read_misses;
+    /** How many buckets where evicted? */
+    int evictions;
+    /** How many calls of DHT_write() did this process? */
+    int w_access;
+    /** How many calls of DHT_read() did this process? */
+    int r_access;
+  } stats;
 #endif
 } DHT;
 

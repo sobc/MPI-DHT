@@ -161,30 +161,19 @@ DHT *DHT_create(const DHT_init_t *init_params) {
 
   // if set, initialize dht_stats
 #ifdef DHT_STATISTICS
-  DHT_stats *stats;
-
-  stats = (DHT_stats *)malloc(sizeof(DHT_stats));
-  if (stats == NULL) {
-    free(object->recv_entry);
-    free(object->send_entry);
-    free(object->index);
-    goto err_after_ucx_init;
-  }
-
-  object->stats = stats;
-  object->stats->writes_local = (int *)calloc(comm_size, sizeof(int));
-  if (unlikely(object->stats->writes_local == NULL)) {
+  object->stats.writes_local = (int *)calloc(comm_size, sizeof(int));
+  if (unlikely(object->stats.writes_local == NULL)) {
     free(object->recv_entry);
     free(object->send_entry);
     free(object->index);
     free(object->stats);
     goto err_after_ucx_init;
   }
-  object->stats->old_writes = 0;
-  object->stats->read_misses = 0;
-  object->stats->evictions = 0;
-  object->stats->w_access = 0;
-  object->stats->r_access = 0;
+  object->stats.old_writes = 0;
+  object->stats.read_misses = 0;
+  object->stats.evictions = 0;
+  object->stats.w_access = 0;
+  object->stats.r_access = 0;
 #endif
 
   return object;
