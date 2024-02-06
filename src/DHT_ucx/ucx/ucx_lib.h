@@ -70,6 +70,9 @@ ucs_status_t ucx_broadcast(const ucx_handle_t *ucx_h, uint64_t root, void *msg,
 ucs_status_t ucx_reduce_sum(const ucx_handle_t *ucx_h, int64_t *buf,
                             uint32_t root);
 
+ucs_status_t ucx_gather(const ucx_handle_t *ucx_h, void *send_buf,
+                        uint64_t count, void *recv_buf, uint32_t root);
+
 ucs_status_t ucx_barrier(const ucx_handle_t *ucx_h);
 
 ucs_status_t ucx_tagged_send(const ucx_handle_t *ucx_h, uint32_t dest,

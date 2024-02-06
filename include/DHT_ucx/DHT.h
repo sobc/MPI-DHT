@@ -143,7 +143,7 @@ typedef struct {
   /** Detailed statistics of the usage of the DHT. */
   struct DHT_stats {
     /** Count of writes to specific process this process did. */
-    int *writes_local;
+    int64_t *writes_local;
     /** Writes after last call of DHT_print_statistics. */
     int old_writes;
     /** How many read misses occur? */

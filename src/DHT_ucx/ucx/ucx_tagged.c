@@ -2,12 +2,14 @@
 #include "ucx_lib.h"
 
 #include <stdint.h>
+#include <string.h>
 #include <ucp/api/ucp.h>
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
 
 #define UCX_TAG_BARRIER 5
 #define UCX_TAG_REDUCE 6
+#define UCX_TAG_GATHER 7
 
 #define UCX_GEN_TAG(msg_tag, src) (ucp_tag_t)(src) << 32 | msg_tag
 
@@ -179,6 +181,37 @@ ucs_status_t ucx_barrier(const ucx_handle_t *ucx_h) {
 
   // after all processes synchronized, start second barrier ring
   status = barrier_ring(ucx_h, rank, size);
+
+  return status;
+}
+
+ucs_status_t ucx_gather(const ucx_handle_t *ucx_h, void *send_buf,
+                        uint64_t count, void *recv_buf, uint32_t root) {
+  const uint32_t rank = ucx_h->self_rank;
+  const uint32_t size = ucx_h->comm_size;
+
+  ucs_status_t status = UCS_OK;
+
+  if (root == rank) {
+    for (uint32_t i = 0; i < size; i++) {
+      if (i == rank) {
+        memcpy(recv_buf + (i * count), send_buf, count);
+        continue;
+      }
+
+      status = ucx_tagged_recv(ucx_h, i, recv_buf + (i * count), count,
+                               UCX_TAG_GATHER);
+
+      if (unlikely(UCS_OK != status)) {
+        return status;
+      }
+    }
+  } else {
+    status = ucx_tagged_send(ucx_h, root, send_buf, count, UCX_TAG_GATHER);
+    if (unlikely(UCS_OK != status)) {
+      return status;
+    }
+  }
 
   return status;
 }

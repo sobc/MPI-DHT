@@ -161,7 +161,8 @@ DHT *DHT_create(const DHT_init_t *init_params) {
 
   // if set, initialize dht_stats
 #ifdef DHT_STATISTICS
-  object->stats.writes_local = (int *)calloc(comm_size, sizeof(int));
+  object->stats.writes_local =
+      (int *)calloc(object->ucx_h->comm_size, sizeof(int64_t));
   if (unlikely(object->stats.writes_local == NULL)) {
     free(object->recv_entry);
     free(object->send_entry);
@@ -362,7 +363,7 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
     if (!(*(buffer_begin) & (BUCKET_OCCUPIED | BUCKET_INVALID))) {
 // if the bucket is available, break out of the loop
 #ifdef DHT_STATISTICS
-      table->stats->writes_local[dest_rank]++;
+      table->stats.writes_local[dest_rank]++;
 #endif
       break;
     }
@@ -374,7 +375,7 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
         // if this is the last index, increment the eviction counter
         table->evictions += 1;
 #ifdef DHT_STATISTICS
-        table->stats->evictions += 1;
+        table->stats.evictions += 1;
 #endif
         result = DHT_WRITE_SUCCESS_WITH_EVICTION;
         break;
@@ -437,7 +438,7 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
   uint8_t retry = 0;
 
 #ifdef DHT_STATISTICS
-  table->stats->r_access++;
+  table->stats.r_access++;
 #endif
 
   // determine destination rank and index by hash of key
@@ -469,7 +470,7 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
     if (!(*(buffer_begin) & (BUCKET_OCCUPIED))) {
       table->read_misses += 1;
 #ifdef DHT_STATISTICS
-      table->stats->read_misses += 1;
+      table->stats.read_misses += 1;
 #endif
       // unlock window and return
       return DHT_READ_MISS;
@@ -478,7 +479,7 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
       if (curr_index == (table->index_count) - 1) {
         table->read_misses += 1;
 #ifdef DHT_STATISTICS
-        table->stats->read_misses += 1;
+        table->stats.read_misses += 0;
 #endif
       }
     } else {
@@ -741,11 +742,19 @@ int DHT_free(DHT *table, uint64_t *eviction_counter,
 int DHT_print_statistics(DHT *table) {
 #ifdef DHT_STATISTICS
   int *written_buckets;
-  int *read_misses, sum_read_misses;
-  int *evictions, sum_evictions;
-  int sum_w_access, sum_r_access, *w_access, *r_access;
-  int rank;
-  MPI_Comm_rank(table->communicator, &rank);
+  int *read_misses = NULL;
+  int64_t sum_read_misses;
+  int *evictions = NULL;
+  int64_t sum_evictions;
+  int *w_access = NULL;
+  int *r_access = NULL;
+  int64_t sum_w_access;
+  int64_t sum_r_access;
+  int rank = table->ucx_h->self_rank;
+  uint32_t comm_size = table->ucx_h->comm_size;
+  // MPI_Comm_rank(table->communicator, &rank);
+
+  ucs_status_t status;
 
 // disable possible warning of unitialized variable, which is not the case
 // since we're using MPI_Gather to obtain all values only on rank 0
@@ -753,57 +762,114 @@ int DHT_print_statistics(DHT *table) {
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 
   // obtaining all values from all processes in the communicator
-  if (rank == 0)
-    read_misses = (int *)malloc(table->comm_size * sizeof(int));
-  if (MPI_Gather(&table->stats->read_misses, 1, MPI_INT, read_misses, 1,
-                 MPI_INT, 0, table->communicator) != 0)
-    return DHT_UCX_ERROR;
-  if (MPI_Reduce(&table->stats->read_misses, &sum_read_misses, 1, MPI_INT,
-                 MPI_SUM, 0, table->communicator) != 0)
-    return DHT_UCX_ERROR;
-  table->stats->read_misses = 0;
+  if (rank == 0) {
+    read_misses = (int *)malloc(comm_size * sizeof(int));
+    if (unlikely(read_misses == NULL)) {
+      return DHT_UCX_ERROR;
+    }
+  }
 
-  if (rank == 0)
-    evictions = (int *)malloc(table->comm_size * sizeof(int));
-  if (MPI_Gather(&table->stats->evictions, 1, MPI_INT, evictions, 1, MPI_INT, 0,
-                 table->communicator) != 0)
+  status = ucx_gather(table->ucx_h, &table->stats.read_misses, sizeof(int),
+                      read_misses, 0);
+  if (unlikely(status != UCS_OK)) {
     return DHT_UCX_ERROR;
-  if (MPI_Reduce(&table->stats->evictions, &sum_evictions, 1, MPI_INT, MPI_SUM,
-                 0, table->communicator) != 0)
-    return DHT_UCX_ERROR;
-  table->stats->evictions = 0;
+  }
 
-  if (rank == 0)
-    w_access = (int *)malloc(table->comm_size * sizeof(int));
-  if (MPI_Gather(&table->stats->w_access, 1, MPI_INT, w_access, 1, MPI_INT, 0,
-                 table->communicator) != 0)
-    return DHT_UCX_ERROR;
-  if (MPI_Reduce(&table->stats->w_access, &sum_w_access, 1, MPI_INT, MPI_SUM, 0,
-                 table->communicator) != 0)
-    return DHT_UCX_ERROR;
-  table->stats->w_access = 0;
+  if (rank == 0) {
+    sum_read_misses = 0;
+    for (uint32_t i = 0; i < comm_size; i++) {
+      sum_read_misses += read_misses[i];
+    }
+  }
 
-  if (rank == 0)
-    r_access = (int *)malloc(table->comm_size * sizeof(int));
-  if (MPI_Gather(&table->stats->r_access, 1, MPI_INT, r_access, 1, MPI_INT, 0,
-                 table->communicator) != 0)
-    return DHT_UCX_ERROR;
-  if (MPI_Reduce(&table->stats->r_access, &sum_r_access, 1, MPI_INT, MPI_SUM, 0,
-                 table->communicator) != 0)
-    return DHT_UCX_ERROR;
-  table->stats->r_access = 0;
+  table->stats.read_misses = 0;
 
-  if (rank == 0)
-    written_buckets = (int *)calloc(table->comm_size, sizeof(int));
-  if (MPI_Reduce(table->stats->writes_local, written_buckets, table->comm_size,
-                 MPI_INT, MPI_SUM, 0, table->communicator) != 0)
+  if (rank == 0) {
+    evictions = (int *)malloc(comm_size * sizeof(int));
+    if (unlikely(evictions == NULL)) {
+      return DHT_UCX_ERROR;
+    }
+  }
+
+  status = ucx_gather(table->ucx_h, &table->stats.evictions, sizeof(int),
+                      evictions, 0);
+  if (unlikely(status != UCS_OK)) {
     return DHT_UCX_ERROR;
+  }
+
+  if (rank == 0) {
+    sum_evictions = 0;
+    for (uint32_t i = 0; i < comm_size; i++) {
+      sum_evictions += evictions[i];
+    }
+  }
+
+  table->stats.evictions = 0;
+
+  if (rank == 0) {
+    w_access = (int *)malloc(comm_size * sizeof(int));
+    if (unlikely(w_access == NULL)) {
+      return DHT_UCX_ERROR;
+    }
+  }
+
+  status = ucx_gather(table->ucx_h, &table->stats.w_access, sizeof(int),
+                      w_access, 0);
+  if (unlikely(status != UCS_OK)) {
+    return DHT_UCX_ERROR;
+  }
+
+  if (rank == 0) {
+    sum_w_access = 0;
+    for (uint32_t i = 0; i < comm_size; i++) {
+      sum_w_access += w_access[i];
+    }
+  }
+
+  table->stats.w_access = 0;
+
+  if (rank == 0) {
+    r_access = (int *)malloc(comm_size * sizeof(int));
+    if (unlikely(r_access == NULL)) {
+      return DHT_UCX_ERROR;
+    }
+  }
+
+  status = ucx_gather(table->ucx_h, &table->stats.r_access, sizeof(int),
+                      r_access, 0);
+  if (unlikely(status != UCS_OK)) {
+    return DHT_UCX_ERROR;
+  }
+
+  if (rank == 0) {
+    sum_r_access = 0;
+    for (uint32_t i = 0; i < comm_size; i++) {
+      sum_r_access += r_access[i];
+    }
+  }
+
+  table->stats.r_access = 0;
+
+  if (rank == 0) {
+    written_buckets = (int *)calloc(comm_size, sizeof(int64_t));
+    if (unlikely(written_buckets == NULL)) {
+      return DHT_UCX_ERROR;
+    }
+  }
+
+  for (uint32_t i = 0; i < comm_size; i++) {
+    int64_t buf = table->stats.writes_local[i];
+    status = ucx_reduce_sum(table->ucx_h, &buf, 0);
+    if (rank == 0) {
+      written_buckets[i] = buf;
+    }
+  }
 
   if (rank == 0) { // only process with rank 0 will print out results as a
                    // table
     int sum_written_buckets = 0;
 
-    for (int i = 0; i < table->comm_size; i++) {
+    for (uint32_t i = 0; i < comm_size; i++) {
       sum_written_buckets += written_buckets[i];
     }
 
@@ -818,31 +884,42 @@ int DHT_print_statistics(DHT *table) {
     printf("%-11s|%-11s|%-11s||%-11s|%-11s|%-11s|%-11s\n", "rank", "occupied",
            "free", "w_access", "r_access", "read misses", "evictions");
     printf("%s\n", pad);
-    for (int i = 0; i < table->comm_size; i++) {
+    for (uint32_t i = 0; i < comm_size; i++) {
       printf("%-11d|%-11d|%-11d||%-11d|%-11d|%-11d|%-11d\n", i,
-             written_buckets[i], table->table_size - written_buckets[i],
+             written_buckets[i], table->bucket_count - written_buckets[i],
              w_access[i], r_access[i], read_misses[i], evictions[i]);
     }
     printf("%s\n", pad);
-    printf("%-11s|%-11d|%-11d||%-11d|%-11d|%-11d|%-11d\n", "sum",
+    printf("%-11s|%-11d|%-11d||%-11ld|%-11ld|%-11ld|%-11ld\n", "sum",
            sum_written_buckets,
-           (table->table_size * table->comm_size) - sum_written_buckets,
+           (table->bucket_count * comm_size) - sum_written_buckets,
            sum_w_access, sum_r_access, sum_read_misses, sum_evictions);
 
     printf("%s\n", pad);
     printf("%s %d\n",
-           "new entries:", sum_written_buckets - table->stats->old_writes);
+           "new entries:", sum_written_buckets - table->stats.old_writes);
 
     printf("\n");
     fflush(stdout);
 
-    table->stats->old_writes = sum_written_buckets;
+    table->stats.old_writes = sum_written_buckets;
   }
 
 // enable warning again
 #pragma GCC diagnostic pop
 
-  MPI_Barrier(table->communicator);
+  status = ucx_barrier(table->ucx_h);
+  if (status != UCS_OK) {
+    return DHT_UCX_ERROR;
+  }
+
+  if (rank == 0) {
+    free(written_buckets);
+    free(r_access);
+    free(w_access);
+    free(evictions);
+    free(read_misses);
+  }
   return DHT_SUCCESS;
 #else
   return DHT_NOT_IMPLEMENTED;
