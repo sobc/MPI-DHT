@@ -19,6 +19,7 @@
 #include <DHT_ucx/DHT.h>
 #include <mpi.h>
 
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -61,9 +62,13 @@ static inline void determine_dest(uint64_t hash, int comm_size,
   for (uint32_t i = 0; i < index_count; i++) {
     tmp_index = 0;
     memcpy(&tmp_index, (char *)&hash + i, index_size);
+    tmp_index >>= 4;
     index[i] = (uint64_t)(tmp_index % table_size);
   }
-  *dest_rank = (unsigned int)(hash % comm_size);
+
+  const unsigned int rank_shift = 32 - (int)ceil(log2(comm_size));
+
+  *dest_rank = (unsigned int)((hash >> rank_shift) % comm_size);
 }
 
 /**
@@ -162,13 +167,25 @@ DHT *DHT_create(const DHT_init_t *init_params) {
   // if set, initialize dht_stats
 #ifdef DHT_STATISTICS
   object->stats.writes_local =
-      (int *)calloc(object->ucx_h->comm_size, sizeof(int64_t));
+      (int64_t *)calloc(object->ucx_h->comm_size, sizeof(int64_t));
   if (unlikely(object->stats.writes_local == NULL)) {
     free(object->recv_entry);
     free(object->send_entry);
     free(object->index);
     goto err_after_ucx_init;
   }
+
+  object->stats.index_usage =
+      (uint64_t *)calloc(object->index_count, sizeof(uint64_t));
+
+  if (unlikely(object->stats.index_usage == NULL)) {
+    free(object->recv_entry);
+    free(object->send_entry);
+    free(object->index);
+    free(object->stats.writes_local);
+    goto err_after_ucx_init;
+  }
+
   object->stats.old_writes = 0;
   object->stats.read_misses = 0;
   object->stats.evictions = 0;
@@ -341,6 +358,10 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   memcpy((char *)table->send_entry + table->data_size + table->key_size + 1,
          &chksum, sizeof(uint32_t));
 
+#ifdef DHT_STATISTICS
+  table->stats.w_access++;
+#endif
+
   // loop through the index array, checking for an available bucket
   for (curr_index = 0; curr_index < table->index_count; curr_index++) {
     // get the contents of the destination bucket
@@ -407,6 +428,10 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
     return DHT_UCX_ERROR;
   }
 
+#ifdef DHT_STATISTICS
+  table->stats.index_usage[curr_index]++;
+#endif
+
 #ifdef DHT_DISTRIBUTION
   table->access_distribution[dest_rank]++;
 #endif
@@ -435,7 +460,7 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
   const char *buffer_begin = (char *)table->recv_entry;
   const uint64_t hash = table->hash_func(table->key_size, send_key);
 
-  uint8_t retry = 0;
+  uint8_t retry = 1;
 
 #ifdef DHT_STATISTICS
   table->stats.r_access++;
@@ -494,8 +519,8 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
       if (*bucket_check !=
           CROP_HASH(table->hash_func(table->data_size + table->key_size,
                                      key_val_begin))) {
-        if (!retry) {
-          retry = 1;
+        if (!!retry) {
+          retry = 0;
           curr_index--;
           table->chksum_retries++;
           continue;
@@ -959,6 +984,31 @@ static int gather_distribution_master(uint64_t **distribution, DHT *table) {
   }
   return DHT_SUCCESS;
 }
+
+static int gather_index_master(uint64_t **index_usage, DHT *table) {
+  for (uint32_t i = 0; i < table->ucx_h->comm_size; i++) {
+    index_usage[i] = (uint64_t *)calloc(table->index_count, sizeof(uint64_t));
+    if (unlikely(index_usage[i] == NULL)) {
+      free_already_allocated(index_usage, i - 1);
+      return DHT_NO_MEM;
+    }
+    if (i == table->ucx_h->self_rank) {
+      memcpy(index_usage[i], table->stats.index_usage,
+             table->index_count * sizeof(uint64_t));
+      continue;
+    }
+
+    ucs_status_t status =
+        ucx_tagged_recv(table->ucx_h, i, index_usage[i],
+                        table->index_count * sizeof(uint64_t), i);
+    if (unlikely(status != UCS_OK)) {
+      free_already_allocated(index_usage, i);
+      return DHT_UCX_ERROR;
+    }
+  }
+  return DHT_SUCCESS;
+}
+
 #endif
 
 int DHT_gather_distribution(DHT *table, uint64_t ***distribution, int reset) {
@@ -986,6 +1036,39 @@ int DHT_gather_distribution(DHT *table, uint64_t ***distribution, int reset) {
   if (reset) {
     memset(table->access_distribution, 0,
            table->ucx_h->comm_size * sizeof(uint64_t));
+  }
+
+  return DHT_SUCCESS;
+
+#else
+  return DHT_NOT_IMPLEMENTED;
+#endif
+}
+
+int DHT_gather_index_usage(DHT *table, uint64_t ***index_usage, int reset) {
+#ifdef DHT_DISTRIBUTION
+  if (table->ucx_h->self_rank == 0) {
+    *index_usage =
+        (uint64_t **)calloc(table->ucx_h->comm_size, sizeof(uint64_t *));
+    if (unlikely(index_usage == NULL)) {
+      return DHT_NO_MEM;
+    }
+
+    ucs_status_t status = gather_index_master(*index_usage, table);
+    if (unlikely(status != UCS_OK)) {
+      return DHT_UCX_ERROR;
+    }
+  } else {
+    ucs_status_t status = ucx_tagged_send(
+        table->ucx_h, 0, table->stats.index_usage,
+        table->index_count * sizeof(uint64_t), table->ucx_h->self_rank);
+    if (unlikely(status != UCS_OK)) {
+      return DHT_UCX_ERROR;
+    }
+  }
+
+  if (reset) {
+    memset(table->stats.index_usage, 0, table->index_count * sizeof(uint64_t));
   }
 
   return DHT_SUCCESS;

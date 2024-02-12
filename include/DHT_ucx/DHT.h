@@ -154,6 +154,8 @@ typedef struct {
     int w_access;
     /** How many calls of DHT_read() did this process? */
     int r_access;
+
+    uint64_t *index_usage;
   } stats;
 #endif
 #ifdef DHT_DISTRIBUTION
@@ -331,6 +333,8 @@ static inline void DHT_free_distribution(DHT *table, uint64_t **distribution) {
   }
   free(distribution);
 }
+
+int DHT_gather_index_usage(DHT *table, uint64_t ***index_usage, int reset);
 
 #if defined(c_plusplus) || defined(__cplusplus)
 }
