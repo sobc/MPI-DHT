@@ -195,6 +195,10 @@ ucx_handle_t *ucx_init(ucx_worker_addr_bootstrap func_bcast,
                                   UCX_RMA_REQ_FEAT, ucx_h->comm_size,
                                   &ucx_h->rma_h.c_w_ep_h, NULL, NULL, 0);
 
+  if (unlikely(UCS_OK != status)) {
+    goto err_subfuncs;
+  }
+
   // status = ucx_createEndpoints(ucx_h->ucp_worker, &ep_info, &ucx_h->ep_list);
   // if (unlikely(status != UCS_OK)) {
   //   goto err_subfuncs;
