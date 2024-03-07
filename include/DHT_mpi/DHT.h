@@ -55,6 +55,10 @@
 /** Size of the file header in byte. */
 #define DHT_FILEHEADER_SIZE 8
 
+#if defined(c_plusplus) || defined(__cplusplus)
+extern "C" {
+#endif
+
 /**
  * Internal struct to store statistics about read and write accesses and also
  * read misses and evictions.
@@ -323,5 +327,9 @@ static void set_flag(char *flag_byte);
  * @return int Returns 1 for true or 0 for false.
  */
 static int read_flag(char flag_byte);
+
+#if defined(c_plusplus) || defined(__cplusplus)
+}
+#endif
 
 #endif /* DHT_H */
