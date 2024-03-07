@@ -41,6 +41,8 @@
 
 #define BUCKET_OFFSET(offset, i, disp) (offset * i) + disp
 
+static unsigned int index_shift = 0;
+
 /**
  * Determines the destination rank and index for a given key.
  *
@@ -62,7 +64,7 @@ static inline void determine_dest(uint64_t hash, int comm_size,
   for (uint32_t i = 0; i < index_count; i++) {
     tmp_index = 0;
     memcpy(&tmp_index, (char *)&hash + i, index_size);
-    tmp_index >>= 4;
+    tmp_index >>= index_shift;
     index[i] = (uint64_t)(tmp_index % table_size);
   }
 
@@ -89,6 +91,9 @@ static inline uint8_t get_index_bytes(uint64_t nbuckets) {
   }
 
   const uint8_t index_bytes = (uint8_t)(index_bits / 8) + 1;
+
+  // FIXME: do not use global variable
+  index_shift = 8 * index_bytes - index_bits;
 
   return index_bytes;
 }
