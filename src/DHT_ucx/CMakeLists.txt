@@ -22,10 +22,6 @@ if (DHT_WITH_UCX)
   target_include_directories(DHT_UCX_LOCKING PUBLIC ${PROJECT_SOURCE_DIR}/include)
   target_compile_definitions(DHT_UCX_LOCKING PRIVATE DHT_WITH_LOCKING)
 
-
-  target_compile_definitions(DHT_UCX PRIVATE DHT_STATISTICS)
-  target_compile_definitions(DHT_UCX_LOCKING PRIVATE DHT_STATISTICS)
-
   if (DHT_STATISTICS)
     target_compile_definitions(DHT_UCX PRIVATE DHT_DISTRIBUTION DHT_STATISTICS)
     target_compile_definitions(DHT_UCX_LOCKING PRIVATE DHT_DISTRIBUTION DHT_STATISTICS)
