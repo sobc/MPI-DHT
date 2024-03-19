@@ -686,6 +686,6 @@ int DHT_print_statistics(DHT *table) {
 #pragma GCC diagnostic pop
 
   MPI_Barrier(table->communicator);
-  return DHT_SUCCESS;
 #endif
+  return DHT_SUCCESS;
 }
