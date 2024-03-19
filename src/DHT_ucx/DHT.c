@@ -545,7 +545,7 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
           return DHT_UCX_ERROR;
         }
 
-        return DHT_READ_MISS;
+        return DHT_READ_CORRUPT;
       }
 
       break;

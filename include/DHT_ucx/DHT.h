@@ -45,6 +45,9 @@
 #define DHT_READ_MISS -2
 /** Returned by DHT_write if a bucket was evicted. */
 #define DHT_WRITE_SUCCESS_WITH_EVICTION -3
+/** Returned by DHT_read if a corrupt bucket was identified (checksum mismatch).
+ */
+#define DHT_READ_CORRUPT -4
 /** Returned when no errors occured. */
 #define DHT_SUCCESS 0
 
