@@ -32,14 +32,22 @@
 #define DHT_H
 
 #include <mpi.h>
+#include <stdbool.h>
 #include <stdint.h>
+#include <sys/types.h>
+#include <ucp/api/ucp_def.h>
+
+#include "UCX_bcast_functions.h"
 
 /** Returned if some error in MPI routine occurs. */
-#define DHT_MPI_ERROR -1
+#define DHT_UCX_ERROR -1
 /** Returned by a call of DHT_read if no bucket with given key was found. */
 #define DHT_READ_MISS -2
 /** Returned by DHT_write if a bucket was evicted. */
 #define DHT_WRITE_SUCCESS_WITH_EVICTION -3
+/** Returned by DHT_read if a corrupt bucket was identified (checksum mismatch).
+ */
+#define DHT_READ_CORRUPT -4
 /** Returned when no errors occured. */
 #define DHT_SUCCESS 0
 
@@ -52,33 +60,51 @@
 /** Returned by DHT file operations if error occured in MPI_Write operation. */
 #define DHT_FILE_WRITE_ERROR -14
 
+#define DHT_NO_MEM -15
+
+#define DHT_NOT_IMPLEMENTED -32
+
 /** Size of the file header in byte. */
 #define DHT_FILEHEADER_SIZE 8
 
-/**
- * Internal struct to store statistics about read and write accesses and also
- * read misses and evictions.
- * <b>All values will be resetted to zero after a call of
- * DHT_print_statistics().</b>
- * Internal use only!
- *
- * @todo There's maybe a better solution than DHT_print_statistics and this
- * struct
- */
-typedef struct {
-  /** Count of writes to specific process this process did. */
-  int *writes_local;
-  /** Writes after last call of DHT_print_statistics. */
-  int old_writes;
-  /** How many read misses occur? */
-  int read_misses;
-  /** How many buckets where evicted? */
-  int evictions;
-  /** How many calls of DHT_write() did this process? */
-  int w_access;
-  /** How many calls of DHT_read() did this process? */
-  int r_access;
-} DHT_stats;
+#if defined(c_plusplus) || defined(__cplusplus)
+extern "C" {
+#endif
+
+struct ucx_handle_lock {
+  uint64_t lock_rem_addr;
+  int rank;
+};
+
+struct ucx_c_w_ep_handle {
+  ucp_context_h ucp_context;
+  ucp_worker_h ucp_worker;
+  ucp_ep_h *ep_list;
+};
+
+struct ucx_rma_handle {
+  struct ucx_c_w_ep_handle c_w_ep_h;
+  ucp_mem_h mem_h;
+  uint64_t local_mem_addr;
+  uint64_t *remote_addr;
+  void **rkey_buffer;
+  ucp_rkey_h *rkey_handles;
+};
+
+typedef struct ucx_handle {
+  struct ucx_c_w_ep_handle ptp_h;
+  struct ucx_rma_handle rma_h;
+  struct ucx_handle_lock lock_h;
+  uint32_t lock_size;
+  uint32_t comm_size;
+  uint32_t self_rank;
+} ucx_handle_t;
+
+typedef struct MPI_exchange_t {
+  MPI_Comm comm;
+  int size;
+  int rank;
+} MPI_exchange;
 
 /**
  * Struct which serves as a handler or so called \a DHT-object. Will
@@ -87,30 +113,29 @@ typedef struct {
  * Do not touch outside DHT functions!
  */
 typedef struct {
-  /** Created MPI Window, which serves as the DHT memory area of the process. */
-  MPI_Win window;
+  ucx_handle_t *ucx_h;
+  uint64_t offset;
+  uint8_t lock_displ;
+  uint8_t flag_padding;
+  uint8_t data_displacement;
   /** Size of the data of a bucket entry in byte. */
   int data_size;
   /** Size of the key of a bucket entry in byte. */
   int key_size;
   /** Count of buckets for each process. */
-  unsigned int table_size;
-  /** MPI communicator of all participating processes. */
-  MPI_Comm communicator;
-  /** Size of the MPI communicator respectively all participating processes. */
-  int comm_size;
+  unsigned int bucket_count;
   /** Pointer to a hashfunction. */
   uint64_t (*hash_func)(int, const void *);
   /** Pre-allocated memory where a bucket can be received. */
   void *recv_entry;
   /** Pre-allocated memory where a bucket to send can be stored. */
   void *send_entry;
-  /** Allocated memory on which the MPI window was created. */
-  void *mem_alloc;
   /** Count of read misses over all time. */
   int read_misses;
   /** Count of evictions over all time. */
   int evictions;
+
+  uint32_t chksum_retries;
   /** Array of indeces where a bucket can be stored. */
   uint64_t *index;
   /** Count of possible indeces. */
@@ -119,53 +144,66 @@ typedef struct {
   int (*accumulate_callback)(int, void *, int, void *);
 #ifdef DHT_STATISTICS
   /** Detailed statistics of the usage of the DHT. */
-  DHT_stats *stats;
+  struct DHT_stats {
+    /** Count of writes to specific process this process did. */
+    int64_t *writes_local;
+    /** Writes after last call of DHT_print_statistics. */
+    int old_writes;
+    /** How many read misses occur? */
+    int read_misses;
+    /** How many buckets where evicted? */
+    int evictions;
+    /** How many calls of DHT_write() did this process? */
+    int w_access;
+    /** How many calls of DHT_read() did this process? */
+    int r_access;
+
+    uint64_t *index_usage;
+  } stats;
+#endif
+#ifdef DHT_DISTRIBUTION
+  uint64_t *access_distribution;
 #endif
 } DHT;
 
-extern void DHT_set_accumulate_callback(DHT *table,
-                                        int (*callback_func)(int, void *, int,
-                                                              void *));
+typedef struct DHT_init {
+  /** Size of the key of a bucket entry in byte. */
+  int key_size;
+  /** Size of the data of a bucket entry in byte. */
+  int data_size;
+  /** Count of buckets for each process. */
+  unsigned int bucket_count;
+  /** Pointer to a hashfunction. */
+  uint64_t (*hash_func)(int, const void *);
+  /** Pointer to broadcast function */
+  ucx_worker_addr_bootstrap bcast_func;
+  /** pointer to broadcast function arguments */
+  const void *bcast_func_args;
+} DHT_init_t;
 
-extern int DHT_write_accumulate(DHT *table, const void *key, int send_size,
-                                void *data, uint32_t *proc, uint32_t *index, int *callback_ret);
+/* extern void DHT_set_accumulate_callback(DHT *table, */
+/*                                         int (*callback_func)(int, void *,
+ * int, */
+/*                                                              void *)); */
 
-/**
- * @brief Create a DHT.
- *
- * When calling this function, the required memory is allocated and a
- * MPI_Window is created. This allows the execution of MPI_Get and
- * MPI_Put operations for one-sided communication. Then the number of
- * indexes is calculated and finally all relevant data is entered into the
- * \a DHT-object which is returned.
- *
- * @param comm MPI communicator which addresses all participating process of the
- * DHT.
- * @param size_per_process Number of buckets per process.
- * @param data_size Size of data in byte.
- * @param key_size Size of the key in byte.
- * @param hash_func Pointer to a hash function. This function must take the size
- * of the key and a pointer to the key as input parameters and return a 64 bit
- * hash.
- * @return DHT* The returned value is the \a DHT-object which serves as a handle
- * for all DHT operations. If an error occured NULL is returned.
+/* extern int DHT_write_accumulate(DHT *table, const void *key, int send_size,
  */
-extern DHT *DHT_create(MPI_Comm comm, uint64_t size_per_process,
-                       unsigned int data_size, unsigned int key_size,
-                       uint64_t (*hash_func)(int, const void *));
+/*                                 void *data, uint32_t *proc, uint32_t *index,
+ */
+/*                                 int *callback_ret); */
 
 /**
- * @brief Write data into DHT.
+ * @brief Creates a distributed hash table (DHT) object.
  *
- * When DHT_write is called, the address window is locked with a
- * LOCK_EXCLUSIVE for write access. Now the first bucket is received
- * using MPI_Get and it is checked if the bucket is empty or if the received key
- * matches the passed key. If this is the case, the data of the bucket is
- * overwritten with the new value. If not, the function continues with the next
- * index until no more indexes are available. When the last index is reached and
- * there are no more indexes available, the last examined bucket is replaced.
- * After successful writing, the memory window is released and the function
- * returns.
+ * @param init_params A pointer to a DHT_init_t structure that contains
+ * initialization parameters for the DHT.
+ *
+ * @return A pointer to the DHT object, or NULL if an error occurred.
+ */
+DHT *DHT_create(const DHT_init_t *init_params);
+
+/**
+ * @brief Writes an entry to the distributed hash table.
  *
  * @param table Pointer to the \a DHT-object.
  * @param key Pointer to the key.
@@ -173,11 +211,10 @@ extern DHT *DHT_create(MPI_Comm comm, uint64_t size_per_process,
  * @param proc If not NULL, returns the process number written to.
  * @param index If not NULL, returns the index of the bucket where the data was
  * written to.
- * @return int Returns either DHT_SUCCESS on success or correspondending error
- * value on eviction or error.
+ * @return DHT_SUCCESS on success, an error code otherwise.
  */
-extern int DHT_write(DHT *table, void *key, void *data, uint32_t *proc,
-                     uint32_t *index);
+int DHT_write(DHT *table, void *key, void *data, uint32_t *proc,
+              uint32_t *index);
 
 /**
  * @brief Read data from DHT.
@@ -200,10 +237,10 @@ extern int DHT_write(DHT *table, void *key, void *data, uint32_t *proc,
  * @return int Returns either DHT_SUCCESS on success or correspondending error
  * value on read miss or error.
  */
-extern int DHT_read(DHT *table, const void *key, void *destination);
+int DHT_read(DHT *table, const void *key, void *destination);
 
-extern int DHT_read_location(DHT *table, uint32_t proc, uint32_t index,
-                             void *destination);
+/* extern int DHT_read_location(DHT *table, uint32_t proc, uint32_t index, */
+/*                              void *destination); */
 /**
  * @brief Write current state of DHT to file.
  *
@@ -218,7 +255,7 @@ extern int DHT_read_location(DHT *table, uint32_t proc, uint32_t index,
  * @return int Returns DHT_SUCCESS on succes, DHT_FILE_IO_ERROR if file can't be
  * opened/closed or DHT_WRITE_ERROR if file is not writable.
  */
-extern int DHT_to_file(DHT *table, const char *filename);
+int DHT_to_file(DHT *table, const char *filename);
 
 /**
  * @brief Read state of DHT from file.
@@ -238,25 +275,24 @@ extern int DHT_to_file(DHT *table, const char *filename);
  * file doesn't match expectation. This is possible if the data size or key size
  * is different.
  */
-extern int DHT_from_file(DHT *table, const char *filename);
+int DHT_from_file(DHT *table, const char *filename);
 
 /**
- * @brief Free ressources of DHT.
+ * @brief Frees the memory allocated for the DHT data structure and releases
+ * the UCX resources.
  *
- * Finally, to free all resources after using the DHT, the function
- * DHT_free must be used. This will free the MPI\_Window, as well as the
- * associated memory. Also all internal variables are released. Optionally, the
- * count of evictions and read misses can also be obtained.
+ * @param table A pointer to the DHT data structure.
+ * @param eviction_counter A pointer to a variable that will receive the total
+ * number of evictions that occurred during the lifetime of the DHT.
+ * @param readerror_counter A pointer to a variable that will receive the total
+ * number of read errors that occurred during the lifetime of the DHT.
+ * @param chksum_retries A pointer to a variable that will receive the total
+ * number of times the checksum verification failed during a write operation.
  *
- * @param table Pointer to the \a DHT-object.
- * @param eviction_counter \a optional: Pointer to integer where the count of
- * evictions should be stored.
- * @param readerror_counter \a optional: Pointer to integer where the count of
- * read errors should be stored.
- * @return int Returns either DHT_SUCCESS on success or DHT_MPI_ERROR on
- * internal MPI error.
+ * @return UCS_OK on success, or an error code on failure.
  */
-extern int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter);
+int DHT_free(DHT *table, uint64_t *eviction_counter,
+             uint64_t *readerror_counter, uint64_t *chksum_retries);
 
 /**
  * @brief Prints a table with statistics about current use of DHT.
@@ -279,49 +315,32 @@ extern int DHT_free(DHT *table, int *eviction_counter, int *readerror_counter);
  * need to define DHT_STATISTICS to the compiler macros to use this
  * function (eg. <emph>gcc -DDHT_STATISTICS ... </emph>).
  * @param table Pointer to the \a DHT-object.
- * @return int Returns DHT_SUCCESS on success or DHT_MPI_ERROR on internal MPI
+ * @return int Returns DHT_SUCCESS on success or DHT_UCX_ERROR on internal MPI
  * error.
  */
-extern int DHT_print_statistics(DHT *table);
+int DHT_print_statistics(DHT *table);
 
 /**
- * @brief Determine destination rank and index.
+ * Synchronizes all processes in the DHT communicator.
  *
- * This is done by looping over all possbile indices. First of all, set a
- * temporary index to zero and copy count of bytes for each index into the
- * memory area of the temporary index. After that the current index is
- * calculated by the temporary index modulo the table size. The destination rank
- * of the process is simply determined by hash modulo the communicator size.
- *
- * @param hash Calculated 64 bit hash.
- * @param comm_size Communicator size.
- * @param table_size Count of buckets per process.
- * @param dest_rank Reference to the destination rank variable.
- * @param index Pointer to the array index.
- * @param index_count Count of possible indeces.
+ * @param table The DHT object.
+ * @return UCS_OK if the barrier was successful, or an error code if it failed.
  */
-static void determine_dest(uint64_t hash, int comm_size,
-                           unsigned int table_size, unsigned int *dest_rank,
-                           uint64_t *index, unsigned int index_count);
+int DHT_barrier(DHT *table);
 
-/**
- * @brief Set the occupied flag.
- *
- * This will set the first bit of a bucket to 1.
- *
- * @param flag_byte First byte of a bucket.
- */
-static void set_flag(char *flag_byte);
+int DHT_gather_distribution(DHT *table, uint64_t ***distribution, int reset);
 
-/**
- * @brief Get the occupied flag.
- *
- * This function determines whether the occupied flag of a bucket was set or
- * not.
- *
- * @param flag_byte First byte of a bucket.
- * @return int Returns 1 for true or 0 for false.
- */
-static int read_flag(char flag_byte);
+static inline void DHT_free_distribution(DHT *table, uint64_t **distribution) {
+  for (uint32_t i = 0; i < table->ucx_h->comm_size; i++) {
+    free(distribution[i]);
+  }
+  free(distribution);
+}
+
+int DHT_gather_index_usage(DHT *table, uint64_t ***index_usage, int reset);
+
+#if defined(c_plusplus) || defined(__cplusplus)
+}
+#endif
 
 #endif /* DHT_H */

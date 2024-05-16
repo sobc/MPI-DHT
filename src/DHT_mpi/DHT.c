@@ -1,4 +1,4 @@
-/// Time-stamp: "Last modified 2023-10-24 15:14:16 mluebke"
+/// Time-stamp: "Last modified 2023-11-10 11:59:10 mluebke"
 /*
 ** Copyright (C) 2017-2021 Max Luebke (University of Potsdam)
 **
@@ -16,7 +16,7 @@
 ** Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 */
 
-#include <DHT/DHT.h>
+#include <DHT_mpi/DHT.h>
 #include <mpi.h>
 
 #include <inttypes.h>
@@ -27,6 +27,8 @@
 #include <string.h>
 #include <unistd.h>
 
+static unsigned int index_shift = 0;
+
 static void determine_dest(uint64_t hash, int comm_size,
                            unsigned int table_size, unsigned int *dest_rank,
                            uint64_t *index, unsigned int index_count) {
@@ -34,12 +36,16 @@ static void determine_dest(uint64_t hash, int comm_size,
   uint64_t tmp_index;
   /** how many bytes do we need for one index? */
   int index_size = sizeof(double) - (index_count - 1);
-  for (int i = 0; i < index_count; i++) {
+  for (uint32_t i = 0; i < index_count; i++) {
     tmp_index = 0;
     memcpy(&tmp_index, (char *)&hash + i, index_size);
+    tmp_index >>= index_shift;
     index[i] = (uint64_t)(tmp_index % table_size);
   }
-  *dest_rank = (unsigned int)(hash % comm_size);
+
+  const unsigned int rank_shift = 32 - (int)ceil(log2(comm_size));
+
+  *dest_rank = (unsigned int)((hash >> rank_shift) % comm_size);
 }
 
 static void set_flag(char *flag_byte) {
@@ -52,6 +58,31 @@ static int read_flag(char flag_byte) {
     return 1;
   } else
     return 0;
+}
+
+/**
+ * Calculates the number of bytes needed to store an index for a given number of
+ * buckets.
+ *
+ * @param nbuckets The number of buckets.
+ * @return The number of bytes needed to store the index.
+ */
+static inline uint8_t get_index_bytes(uint64_t nbuckets) {
+  uint8_t index_bits = 0;
+  uint64_t temp_size = nbuckets;
+
+  // Calculate the logarithm base 2
+  while (temp_size > 0) {
+    temp_size >>= 1;
+    index_bits++;
+  }
+
+  const uint8_t index_bytes = (uint8_t)(index_bits / 8) + 1;
+
+  // FIXME: do not use global variable
+  index_shift = 8 * index_bytes - index_bits;
+
+  return index_bytes;
 }
 
 DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
@@ -102,7 +133,7 @@ DHT *DHT_create(MPI_Comm comm, uint64_t size, unsigned int data_size,
   object->evictions = 0;
   object->recv_entry = malloc(1 + data_size + key_size);
   object->send_entry = malloc(1 + data_size + key_size);
-  object->index_count = 9 - (index_bytes / 8);
+  object->index_count = 8 - (get_index_bytes(size) - 1);
   object->index = (uint64_t *)malloc((object->index_count) * sizeof(uint64_t));
   object->mem_alloc = mem_alloc;
 
@@ -655,6 +686,6 @@ int DHT_print_statistics(DHT *table) {
 #pragma GCC diagnostic pop
 
   MPI_Barrier(table->communicator);
-  return DHT_SUCCESS;
 #endif
+  return DHT_SUCCESS;
 }

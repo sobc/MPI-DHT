@@ -6,4 +6,10 @@ project(DHT_UCX)
 find_package(ucx REQUIRED)
 find_package(MPI REQUIRED)
 
+option(DHT_WITH_UCX "Build DHT based on Unified Communication X" ON)
+option(DHT_WITH_MPI "Build DHT based on Message-Passing Interface" OFF)
+
+option(DHT_STATISTICS "Build with collection of statistics" OFF)
+
 add_subdirectory(src)
+add_subdirectory(test)
