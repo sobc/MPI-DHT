@@ -101,7 +101,6 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
 
     // check if the destination bucket is available
     if (!(*(buffer_begin) & (BUCKET_OCCUPIED | BUCKET_INVALID))) {
-// if the bucket is available, break out of the loop
 #ifdef DHT_STATISTICS
       table->stats.writes_local[dest_rank]++;
 #endif
@@ -109,26 +108,23 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
     }
 
     // check if the keys match
-    if (memcmp((buffer_begin + 1), send_key, table->key_size) != 0) {
+    if (memcmp((buffer_begin + 1), send_key, table->key_size) == 0) {
       // if the keys don't match, continue to the next index
-      if (curr_index == (table->index_count) - 1) {
-        // if this is the last index, increment the eviction counter
-        table->evictions += 1;
-#ifdef DHT_STATISTICS
-        table->stats.evictions += 1;
-#endif
-        result = DHT_WRITE_SUCCESS_WITH_EVICTION;
-        break;
-      }
-      continue;
+      break;
     }
-
-    // if the keys match, overwrite the contents of the destination bucket
-    break;
   }
 
-// acquire a lock on the destination bucket
+  if (curr_index == (table->index_count) - 1) {
+    // if this is the last index, increment the eviction counter
+    table->evictions += 1;
+#ifdef DHT_STATISTICS
+    table->stats.evictions += 1;
+#endif
+    result = DHT_WRITE_SUCCESS_WITH_EVICTION;
+  }
+
 #ifdef DHT_WITH_LOCKING
+  // acquire a lock on the destination bucket
   const uint64_t offset_lock = table->offset * indices[curr_index];
   if (UCS_OK != ucx_write_acquire_lock(table->ucx_h, dest_rank, offset_lock)) {
     return DHT_UCX_ERROR;
@@ -147,19 +143,19 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
     return DHT_UCX_ERROR;
   }
 
+#ifdef DHT_WITH_LOCKING
+  // release the lock on the destination bucket
+  if (UCS_OK != ucx_write_release_lock(table->ucx_h)) {
+    return DHT_UCX_ERROR;
+  }
+#endif
+
 #ifdef DHT_STATISTICS
   table->stats.index_usage[curr_index]++;
 #endif
 
 #ifdef DHT_DISTRIBUTION
   table->access_distribution[dest_rank]++;
-#endif
-
-// release the lock on the destination bucket
-#ifdef DHT_WITH_LOCKING
-  if (UCS_OK != ucx_write_release_lock(table->ucx_h)) {
-    return DHT_UCX_ERROR;
-  }
 #endif
 
   // set the return values
@@ -206,14 +202,15 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
                               table->data_size + table->key_size + 1 +
                                   sizeof(uint32_t));
 
-#ifdef DHT_DISTRIBUTION
-    table->access_distribution[dest_rank]++;
-#endif
-
     if (status != UCS_OK) {
       return DHT_UCX_ERROR;
     }
 
+#ifdef DHT_DISTRIBUTION
+    table->access_distribution[dest_rank]++;
+#endif
+
+    // return if bucket is not occupied
     if (!(*(buffer_begin) & (BUCKET_OCCUPIED))) {
       table->read_misses += 1;
 #ifdef DHT_STATISTICS
@@ -222,50 +219,57 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
       // unlock window and return
       return DHT_READ_MISS;
     }
-    if (memcmp((buffer_begin + 1), send_key, table->key_size) != 0) {
-      if (curr_index == (table->index_count) - 1) {
-        table->read_misses += 1;
-#ifdef DHT_STATISTICS
-        table->stats.read_misses += 0;
-#endif
-      }
-    } else {
 
+    // matching keys found
+    if (memcmp((buffer_begin + 1), send_key, table->key_size) == 0) {
+      // check if the bucket is invalid
       if (*(buffer_begin) & (BUCKET_INVALID)) {
-        return DHT_READ_MISS;
+        return DHT_READ_INVALID;
       }
 
       const void *key_val_begin = buffer_begin + 1;
       const uint32_t *bucket_check =
           (uint32_t *)(buffer_begin + table->data_size + table->key_size + 1);
-      if (*bucket_check !=
+
+      // check if the checksum is correct
+      if (*bucket_check ==
           CROP_HASH(table->hash_func(table->data_size + table->key_size,
                                      key_val_begin))) {
-        if (!!retry) {
-          retry = 0;
-          curr_index--;
-          table->chksum_retries++;
-          continue;
-        }
-
-        const char invalidate = *(buffer_begin) | BUCKET_INVALID;
-        status =
-            ucx_put_blocking(table->ucx_h, dest_rank,
-                             BUCKET_OFFSET(table->offset, indices[curr_index],
-                                           table->data_displacement),
-                             &invalidate, sizeof(char));
-#ifdef DHT_DISTRIBUTION
-        table->access_distribution[dest_rank]++;
-#endif
-
-        if (status != UCS_OK) {
-          return DHT_UCX_ERROR;
-        }
-
-        return DHT_READ_CORRUPT;
+        break;
       }
 
-      break;
+      // if the checksum is incorrect, retry once
+      if (retry > 0) {
+        retry--;
+        curr_index--;
+        table->chksum_retries++;
+        continue;
+      }
+
+      // if the checksum is incorrect, invalidate the bucket
+      const char invalidate = *(buffer_begin) | BUCKET_INVALID;
+      status =
+          ucx_put_blocking(table->ucx_h, dest_rank,
+                           BUCKET_OFFSET(table->offset, indices[curr_index],
+                                         table->data_displacement),
+                           &invalidate, sizeof(char));
+      if (status != UCS_OK) {
+        return DHT_UCX_ERROR;
+      }
+#ifdef DHT_DISTRIBUTION
+      table->access_distribution[dest_rank]++;
+#endif
+
+      return DHT_READ_CORRUPT;
+    }
+
+    // check if the last index was reached
+    if (curr_index == (table->index_count) - 1) {
+      table->read_misses += 1;
+#ifdef DHT_STATISTICS
+      table->stats.read_misses += 0;
+#endif
+      return DHT_READ_MISS;
     }
   }
 

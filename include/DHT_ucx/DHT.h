@@ -45,11 +45,13 @@
 #define DHT_UCX_ERROR -1
 /** Returned by a call of DHT_read if no bucket with given key was found. */
 #define DHT_READ_MISS -2
-/** Returned by DHT_write if a bucket was evicted. */
-#define DHT_WRITE_SUCCESS_WITH_EVICTION -3
 /** Returned by DHT_read if a corrupt bucket was identified (checksum mismatch).
  */
-#define DHT_READ_CORRUPT -4
+#define DHT_READ_CORRUPT -3
+/** Returned by DHT_read if an already invalid marked bucket was read. */
+#define DHT_READ_INVALID -4
+/** Returned by DHT_write if a bucket was evicted. */
+#define DHT_WRITE_SUCCESS_WITH_EVICTION -5
 /** Returned when no errors occured. */
 #define DHT_SUCCESS 0
 
