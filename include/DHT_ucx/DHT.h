@@ -113,6 +113,10 @@ typedef struct {
   uint64_t *index;
   /** Count of possible indeces. */
   unsigned int index_count;
+  /** Count of bits to shift index. */
+  unsigned char index_shift;
+  /** Count of bits to shift rank. */
+  unsigned char rank_shift;
 
   int (*accumulate_callback)(int, void *, int, void *);
 #ifdef DHT_STATISTICS
