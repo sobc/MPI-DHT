@@ -25,17 +25,17 @@ static inline void determine_dest(uint64_t hash, int comm_size,
                                   unsigned int index_count, uint8_t index_shift,
                                   uint8_t rank_shift, unsigned int *dest_rank,
                                   uint64_t *index) {
-  /** temporary index */
-  uint64_t tmp_index;
   /** how many bytes do we need for one index? */
-  const int index_size = sizeof(double) - (index_count - 1);
+  const uint8_t index_size = (sizeof(hash) - index_count + 1) * 8;
   for (uint32_t i = 0; i < index_count; i++) {
-    tmp_index = 0;
-    memcpy(&tmp_index, (char *)&hash + i, index_size);
-    tmp_index >>= index_shift;
-    index[i] = (uint64_t)(tmp_index % table_size);
+    // calculate the index by shifting the hash value and masking it
+    const uint8_t tmp_index =
+        (hash >> (i * index_size)) & ((1 << (index_size)) - 1);
+    // store the index in the index array
+    index[i] = (tmp_index >> index_shift) % table_size;
   }
 
+  // calculate the destination rank by shifting the hash value
   *dest_rank = (unsigned int)((hash >> rank_shift) % comm_size);
 }
 
