@@ -25,15 +25,20 @@ if (DHT_WITH_UCX)
   target_link_libraries(DHT_UCX PUBLIC MPI::MPI_C ucx_communication bstrap_functions -lm)
   target_include_directories(DHT_UCX PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
-  add_library(DHT_UCX_LOCKING ${DHT_UCX_SRC})
+  install(
+    TARGETS DHT_UCX 
+    DESTINATION lib
+  )
 
-  target_link_libraries(DHT_UCX_LOCKING PUBLIC MPI::MPI_C ucx_communication bstrap_functions -lm)
-  target_include_directories(DHT_UCX_LOCKING PUBLIC ${PROJECT_SOURCE_DIR}/include)
-  target_compile_definitions(DHT_UCX_LOCKING PRIVATE DHT_WITH_LOCKING)
+  # add_library(DHT_UCX_LOCKING ${DHT_UCX_SRC})
+
+  # target_link_libraries(DHT_UCX_LOCKING PUBLIC MPI::MPI_C ucx_communication bstrap_functions -lm)
+  # target_include_directories(DHT_UCX_LOCKING PUBLIC ${PROJECT_SOURCE_DIR}/include)
+  # target_compile_definitions(DHT_UCX_LOCKING PRIVATE DHT_WITH_LOCKING)
 
   if (DHT_STATISTICS)
     target_compile_definitions(DHT_UCX PRIVATE DHT_DISTRIBUTION DHT_STATISTICS)
-    target_compile_definitions(DHT_UCX_LOCKING PRIVATE DHT_DISTRIBUTION DHT_STATISTICS)
+    # target_compile_definitions(DHT_UCX_LOCKING PRIVATE DHT_DISTRIBUTION DHT_STATISTICS)
   endif()
 
 endif()

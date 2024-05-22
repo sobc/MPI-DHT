@@ -13,3 +13,9 @@ option(DHT_STATISTICS "Build with collection of statistics" OFF)
 
 add_subdirectory(src)
 add_subdirectory(test)
+
+install(
+    DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/
+    DESTINATION include
+    FILES_MATCHING PATTERN "*.h"
+)
