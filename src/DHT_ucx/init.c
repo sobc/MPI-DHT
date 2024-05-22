@@ -103,13 +103,6 @@ DHT *DHT_create(const DHT_init_t *init_params) {
   object->rank_shift =
       sizeof(uint32_t) * 8 - (unsigned int)ceil(log2(object->ucx_h->comm_size));
 
-  object->index = (uint64_t *)malloc((object->index_count) * sizeof(uint64_t));
-  if (unlikely(object->index == NULL)) {
-    free(object->recv_entry);
-    free(object->send_entry);
-    goto err_after_mem_init;
-  }
-
   // if set, initialize dht_stats
 #ifdef DHT_STATISTICS
   object->stats.writes_local =

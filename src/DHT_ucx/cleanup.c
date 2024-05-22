@@ -44,7 +44,6 @@ int DHT_free(DHT *table, uint64_t *eviction_counter,
 
   free(table->recv_entry);
   free(table->send_entry);
-  free(table->index);
 
 #ifdef DHT_STATISTICS
   free(table->stats.writes_local);

@@ -109,8 +109,6 @@ typedef struct {
   int evictions;
 
   uint32_t chksum_retries;
-  /** Array of indeces where a bucket can be stored. */
-  uint64_t *index;
   /** Count of possible indeces. */
   unsigned int index_count;
   /** Count of bits to shift index. */
