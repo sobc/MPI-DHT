@@ -64,8 +64,10 @@
 /** Returned by DHT file operations if error occured in MPI_Write operation. */
 #define DHT_FILE_WRITE_ERROR -14
 
+/** Returned if no more memory is available. */
 #define DHT_NO_MEM -15
 
+/** Returned if function is not implemented. */
 #define DHT_NOT_IMPLEMENTED -32
 
 /** Size of the file header in byte. */
@@ -158,16 +160,36 @@ typedef struct DHT_init {
   const void *bcast_func_args;
 } DHT_init_t;
 
-/* extern void DHT_set_accumulate_callback(DHT *table, */
-/*                                         int (*callback_func)(int, void *,
- * int, */
-/*                                                              void *)); */
+/**
+ * @brief Sets the accumulate callback function for the DHT table.
+ *
+ * @param table A pointer to the DHT table.
+ * @param callback_func A function pointer to the callback function.
+ */
+extern void DHT_set_accumulate_callback(DHT *table,
+                                        int (*callback_func)(int, void *, int,
+                                                             void *));
 
-/* extern int DHT_write_accumulate(DHT *table, const void *key, int send_size,
+/**
+ * @brief Writes data to the DHT table and accumulates the values.
+ *
+ * This function writes the specified data to the DHT table and accumulates the
+ * values with the existing data at the specified key. The function returns the
+ * result of the accumulation operation.
+ *
+ * @param table The DHT table.
+ * @param key The key to write the data to.
+ * @param send_size The size of the data to send.
+ * @param data The data to write.
+ * @param proc The process ID of the destination process.
+ * @param index The index of the destination bucket.
+ * @param callback_ret Pointer to store the result of the callback function.
+ *
+ * @return The result of the accumulation operation.
  */
-/*                                 void *data, uint32_t *proc, uint32_t *index,
- */
-/*                                 int *callback_ret); */
+extern int DHT_write_accumulate(DHT *table, const void *key, int send_size,
+                                void *data, uint32_t *proc, uint32_t *index,
+                                int *callback_ret);
 
 /**
  * @brief Creates a distributed hash table (DHT) object.

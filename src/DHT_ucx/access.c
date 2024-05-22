@@ -11,14 +11,7 @@
 #define BUCKET_OFFSET(offset, i, disp) (offset * i) + disp
 
 /**
- * Determines the destination rank and index for a given key.
- *
- * @param hash The hash value of the key.
- * @param comm_size The size of the communicator.
- * @param table_size The size of the DHT.
- * @param dest_rank A pointer to the destination rank.
- * @param index A pointer to the index array.
- * @param index_count The number of indices.
+ * Determines the destination rank and indices for a given key.
  */
 static inline void determine_dest(uint64_t hash, int comm_size,
                                   unsigned int table_size,
@@ -228,11 +221,11 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
       }
 
       const void *key_val_begin = buffer_begin + 1;
-      const uint32_t *bucket_check =
+      const uint32_t *bucket_checksum =
           (uint32_t *)(buffer_begin + table->data_size + table->key_size + 1);
 
       // check if the checksum is correct
-      if (*bucket_check ==
+      if (*bucket_checksum ==
           CROP_HASH(table->hash_func(table->data_size + table->key_size,
                                      key_val_begin))) {
         break;
