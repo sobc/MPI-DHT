@@ -1,4 +1,4 @@
-#include <DHT_ucx/DHT.h>
+#include <LUCX/DHT.h>
 
 int DHT_to_file(DHT *table, const char *filename) {
   /* // open file */

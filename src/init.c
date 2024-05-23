@@ -1,4 +1,4 @@
-#include <DHT_ucx/DHT.h>
+#include <LUCX/DHT.h>
 #include <math.h>
 #include <stdint.h>
 
@@ -36,18 +36,8 @@ DHT *DHT_create(const DHT_init_t *init_params) {
 
   ucs_status_t status;
 
-  uint64_t bucket_size =
-      2 * sizeof(uint32_t) + init_params->data_size + init_params->key_size + 1;
-
-#ifdef DHT_WITH_LOCKING
-  uint8_t padding = bucket_size % sizeof(uint32_t);
-  if (!!padding) {
-    padding = sizeof(uint32_t) - padding;
-  }
-  bucket_size += padding;
-#else
-  uint8_t padding = 0;
-#endif
+  const uint64_t bucket_size =
+      sizeof(uint32_t) + init_params->data_size + init_params->key_size + 1;
 
   const uint64_t size_of_dht = init_params->bucket_count * bucket_size;
 
@@ -73,9 +63,6 @@ DHT *DHT_create(const DHT_init_t *init_params) {
 
   // fill dht-object
   object->offset = bucket_size;
-  object->flag_padding = padding;
-  object->lock_displ = 0;
-  object->data_displacement = LOCK_SIZE + padding;
   object->data_size = init_params->data_size;
   object->key_size = init_params->key_size;
   object->bucket_count = init_params->bucket_count;

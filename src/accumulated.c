@@ -1,4 +1,4 @@
-#include <DHT_ucx/DHT.h>
+#include <LUCX/DHT.h>
 
 /* void DHT_set_accumulate_callback(DHT *table, */
 /*                                  int (*callback_func)(int, void *, int, */

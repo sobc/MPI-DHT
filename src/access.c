@@ -1,4 +1,4 @@
-#include <DHT_ucx/DHT.h>
+#include <LUCX/DHT.h>
 
 #include "macros.h"
 #include "ucx/ucx_lib.h"
@@ -77,12 +77,10 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   // loop through the index array, checking for an available bucket
   for (curr_index = 0; curr_index < table->index_count; curr_index++) {
     // get the contents of the destination bucket
-    status = ucx_get_blocking(table->ucx_h, dest_rank,
-                              BUCKET_OFFSET(table->offset, indices[curr_index],
-                                            table->data_displacement),
-                              table->recv_entry,
-                              table->data_size + table->key_size + 1 +
-                                  sizeof(uint32_t));
+    status = ucx_get_blocking(
+        table->ucx_h, dest_rank, table->offset * indices[curr_index],
+        table->recv_entry,
+        table->data_size + table->key_size + 1 + sizeof(uint32_t));
 
 #ifdef DHT_DISTRIBUTION
     table->access_distribution[dest_rank]++;
@@ -116,32 +114,15 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
     result = DHT_WRITE_SUCCESS_WITH_EVICTION;
   }
 
-#ifdef DHT_WITH_LOCKING
-  // acquire a lock on the destination bucket
-  const uint64_t offset_lock = table->offset * indices[curr_index];
-  if (UCS_OK != ucx_write_acquire_lock(table->ucx_h, dest_rank, offset_lock)) {
-    return DHT_UCX_ERROR;
-  }
-#endif
-
   // write the entry to the destination bucket
-  status = ucx_put_blocking(table->ucx_h, dest_rank,
-                            BUCKET_OFFSET(table->offset, indices[curr_index],
-                                          table->data_displacement),
-                            table->send_entry,
-                            table->data_size + table->key_size +
-                                sizeof(uint32_t) + 1);
+  status = ucx_put_blocking(
+      table->ucx_h, dest_rank, table->offset * indices[curr_index],
+      table->send_entry,
+      table->data_size + table->key_size + sizeof(uint32_t) + 1);
 
   if (status != UCS_OK) {
     return DHT_UCX_ERROR;
   }
-
-#ifdef DHT_WITH_LOCKING
-  // release the lock on the destination bucket
-  if (UCS_OK != ucx_write_release_lock(table->ucx_h)) {
-    return DHT_UCX_ERROR;
-  }
-#endif
 
 #ifdef DHT_STATISTICS
   table->stats.index_usage[curr_index]++;
@@ -188,12 +169,10 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
   ucs_status_t status;
 
   for (curr_index = 0; curr_index < table->index_count; curr_index++) {
-    status = ucx_get_blocking(table->ucx_h, dest_rank,
-                              BUCKET_OFFSET(table->offset, indices[curr_index],
-                                            table->data_displacement),
-                              table->recv_entry,
-                              table->data_size + table->key_size + 1 +
-                                  sizeof(uint32_t));
+    status = ucx_get_blocking(
+        table->ucx_h, dest_rank, table->offset * indices[curr_index],
+        table->recv_entry,
+        table->data_size + table->key_size + 1 + sizeof(uint32_t));
 
     if (status != UCS_OK) {
       return DHT_UCX_ERROR;
@@ -241,11 +220,9 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
 
       // if the checksum is incorrect, invalidate the bucket
       const char invalidate = *(buffer_begin) | BUCKET_INVALID;
-      status =
-          ucx_put_blocking(table->ucx_h, dest_rank,
-                           BUCKET_OFFSET(table->offset, indices[curr_index],
-                                         table->data_displacement),
-                           &invalidate, sizeof(char));
+      status = ucx_put_blocking(table->ucx_h, dest_rank,
+                                table->offset * indices[curr_index],
+                                &invalidate, sizeof(char));
       if (status != UCS_OK) {
         return DHT_UCX_ERROR;
       }

@@ -1,4 +1,4 @@
-#include <DHT_ucx/DHT.h>
+#include <LUCX/DHT.h>
 
 #include "ucx/ucx_lib.h"
 
