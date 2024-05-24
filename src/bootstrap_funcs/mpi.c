@@ -1,7 +1,7 @@
 #include "../macros.h"
 
-#include <LUCX/UCX_DataTypes.h>
-#include <LUCX/UCX_bcast_functions.h>
+#include <LUCX/Bootstrap.h>
+#include <LUCX/DataTypes.h>
 #include <mpi.h>
 #include <stdint.h>
 #include <stdlib.h>

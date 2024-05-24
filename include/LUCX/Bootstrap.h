@@ -1,9 +1,7 @@
 #ifndef UCX_BCAST_FUNCTIONS_H_
 #define UCX_BCAST_FUNCTIONS_H_
 
-#include <mpi.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <ucp/api/ucp.h>
 
 #if defined(c_plusplus) || defined(__cplusplus)
@@ -25,6 +23,8 @@ typedef int (*ucx_worker_addr_bootstrap)(ucp_address_t *worker_addr_self,
                                          const void *func_args,
                                          ucx_ep_info_t *endpoint_info);
 
+#ifdef DHT_USE_MPI
+#include <mpi.h>
 // define init function by MPI here
 typedef struct ucx_ep_args_mpi {
   MPI_Comm comm;
@@ -35,10 +35,12 @@ int ucx_worker_bootstrap_mpi(ucp_address_t *worker_addr_self,
                              const void *func_args,
                              ucx_ep_info_t *endpoint_info);
 
+#define UCX_INIT_BSTRAP_MPI ucx_worker_bootstrap_mpi
+
+#endif
+
 #if defined(c_plusplus) || defined(__cplusplus)
 }
 #endif
-
-#define UCX_INIT_BSTRAP_MPI ucx_worker_bootstrap_mpi
 
 #endif // UCX_BCAST_FUNCTIONS_H_

@@ -31,15 +31,15 @@
 #ifndef DHT_H
 #define DHT_H
 
-#include <mpi.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
 
-#include "UCX_DataTypes.h"
-#include "UCX_bcast_functions.h"
+#include "Bootstrap.h"
+#include "DataTypes.h"
 
 /** Returned if some error in MPI routine occurs. */
 #define DHT_UCX_ERROR -1

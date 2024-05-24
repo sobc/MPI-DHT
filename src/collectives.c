@@ -192,6 +192,7 @@ int DHT_print_statistics(DHT *table) {
 #endif
 }
 
+#ifdef DHT_STATISTICS
 #define free_already_allocated(dist, j)                                        \
   do {                                                                         \
     for (int i = 0; i < j; i++) {                                              \
@@ -248,6 +249,8 @@ static int gather_index_master(uint64_t **index_usage, DHT *table) {
   }
   return DHT_SUCCESS;
 }
+
+#endif
 
 int DHT_gather_distribution(DHT *table, uint64_t ***distribution, int reset) {
 #ifdef DHT_STATISTICS
