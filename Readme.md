@@ -59,7 +59,7 @@ In fact, the steps to use the DHT are quite simple:
 2. Insert/Update and read data with `DHT_write()` and `DHT_read()` respectively.
 3. Destroy the DHT object with `DHT_free()`.
 
-The documentation of the functions is available at [Gitlab Pages](todo).
+The documentation of the functions is available at [Gitlab Pages](https://mluebke.pages.uni-potsdam.de/dht_ucx/).
 
 ### Bootstrap functions
 

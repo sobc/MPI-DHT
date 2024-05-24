@@ -4,11 +4,7 @@ before_script:
   - apt-get update
   - apt-get install -y build-essential libopenmpi-dev libucx-dev cmake libxxhash-dev doxygen python3-sphinx python3-sphinx-rtd-theme python3-breathe
 
-stages:
-  - documentation
-
-html: 
-  stage: documentation
+pages: 
   script:
     - mkdir build && cd build
     - cmake .. -DDHT_BUILD_DOCS=ON && make sphinx
