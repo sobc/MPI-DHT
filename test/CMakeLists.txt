@@ -1,7 +1,10 @@
 find_library(LIB_XXHASH xxhash)
+
 if (NOT LIB_XXHASH)
-  message("DHT: xxhash not found, skipping building tests")
+  message("LUCX-DHT: xxhash not found, skipping building tests")
+elseif(NOT MPI_C_FOUND)
+  message("LUCX-DHT: MPI not found, skipping build tests")
 else()
   add_executable(ReadWrite testReadWrite.c)
-  target_link_libraries(ReadWrite PRIVATE LUCX_DHT ${LIB_XXHASH} ucx::ucp)
+  target_link_libraries(ReadWrite PRIVATE LUCX_DHT ${LIB_XXHASH} MPI::MPI_C)
 endif()
