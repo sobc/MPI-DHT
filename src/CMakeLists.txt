@@ -15,7 +15,7 @@ endif()
 add_library(bstrap_functions ${BSTRAP_SRC})
 if (MPI_C_FOUND)
   target_compile_definitions(bstrap_functions PUBLIC DHT_USE_MPI)
-  target_link_libraries(bstrap_functions PRIVATE MPI::MPI_C)
+  target_link_libraries(bstrap_functions PUBLIC MPI::MPI_C)
 endif()
 
 target_include_directories(bstrap_functions PUBLIC ${PROJECT_SOURCE_DIR}/include)
