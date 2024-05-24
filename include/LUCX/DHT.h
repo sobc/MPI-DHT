@@ -104,11 +104,7 @@ typedef struct {
   void *recv_entry;
   /** Pre-allocated memory where a bucket to send can be stored. */
   void *send_entry;
-  /** Count of read misses over all time. */
-  int read_misses;
-  /** Count of evictions over all time. */
-  int evictions;
-
+  /** Count of retries if checksum fails. */
   uint32_t chksum_retries;
   /** Count of possible indeces. */
   unsigned int index_count;
@@ -136,9 +132,6 @@ typedef struct {
 
     uint64_t *index_usage;
   } stats;
-#endif
-#ifdef DHT_DISTRIBUTION
-  uint64_t *access_distribution;
 #endif
 } DHT;
 
@@ -287,8 +280,7 @@ int DHT_from_file(DHT *table, const char *filename);
  *
  * @return UCS_OK on success, or an error code on failure.
  */
-int DHT_free(DHT *table, uint64_t *eviction_counter,
-             uint64_t *readerror_counter, uint64_t *chksum_retries);
+int DHT_free(DHT *table, uint32_t *chksum_retries);
 
 /**
  * @brief Prints a table with statistics about current use of DHT.

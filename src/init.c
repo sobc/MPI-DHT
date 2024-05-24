@@ -67,8 +67,6 @@ DHT *DHT_create(const DHT_init_t *init_params) {
   object->key_size = init_params->key_size;
   object->bucket_count = init_params->bucket_count;
   object->hash_func = init_params->hash_func;
-  object->read_misses = 0;
-  object->evictions = 0;
   object->chksum_retries = 0;
   object->recv_entry =
       malloc(1 + object->data_size + object->key_size + sizeof(uint32_t));
@@ -97,7 +95,6 @@ DHT *DHT_create(const DHT_init_t *init_params) {
   if (unlikely(object->stats.writes_local == NULL)) {
     free(object->recv_entry);
     free(object->send_entry);
-    free(object->index);
     goto err_after_ucx_init;
   }
 
@@ -107,7 +104,6 @@ DHT *DHT_create(const DHT_init_t *init_params) {
   if (unlikely(object->stats.index_usage == NULL)) {
     free(object->recv_entry);
     free(object->send_entry);
-    free(object->index);
     free(object->stats.writes_local);
     goto err_after_ucx_init;
   }
@@ -117,18 +113,6 @@ DHT *DHT_create(const DHT_init_t *init_params) {
   object->stats.evictions = 0;
   object->stats.w_access = 0;
   object->stats.r_access = 0;
-#endif
-
-#ifdef DHT_DISTRIBUTION
-  object->access_distribution =
-      (uint64_t *)calloc(object->ucx_h->comm_size, sizeof(uint64_t));
-
-  if (unlikely(object->access_distribution == NULL)) {
-    free(object->recv_entry);
-    free(object->send_entry);
-    free(object->index);
-    goto err_after_ucx_init;
-  }
 #endif
 
   return object;

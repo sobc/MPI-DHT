@@ -30,5 +30,5 @@ install(
 option(DHT_STATISTICS "Build with collection of statistics" OFF)
 
 if (DHT_STATISTICS)
-  target_compile_definitions(LUCX_DHT PRIVATE DHT_DISTRIBUTION DHT_STATISTICS)
+  target_compile_definitions(LUCX_DHT PRIVATE DHT_STATISTICS)
 endif()

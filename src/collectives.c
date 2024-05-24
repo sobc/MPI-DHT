@@ -1,4 +1,5 @@
 #include <LUCX/DHT.h>
+#include <string.h>
 
 #include "ucx/ucx_lib.h"
 
@@ -191,7 +192,6 @@ int DHT_print_statistics(DHT *table) {
 #endif
 }
 
-#ifdef DHT_DISTRIBUTION
 #define free_already_allocated(dist, j)                                        \
   do {                                                                         \
     for (int i = 0; i < j; i++) {                                              \
@@ -209,7 +209,7 @@ static int gather_distribution_master(uint64_t **distribution, DHT *table) {
       return DHT_NO_MEM;
     }
     if (i == table->ucx_h->self_rank) {
-      memcpy(distribution[i], table->access_distribution,
+      memcpy(distribution[i], table->stats.index_usage,
              table->ucx_h->comm_size * sizeof(uint64_t));
       continue;
     }
@@ -249,10 +249,8 @@ static int gather_index_master(uint64_t **index_usage, DHT *table) {
   return DHT_SUCCESS;
 }
 
-#endif
-
 int DHT_gather_distribution(DHT *table, uint64_t ***distribution, int reset) {
-#ifdef DHT_DISTRIBUTION
+#ifdef DHT_STATISTICS
   if (table->ucx_h->self_rank == 0) {
     *distribution =
         (uint64_t **)calloc(table->ucx_h->comm_size, sizeof(uint64_t *));
@@ -266,7 +264,7 @@ int DHT_gather_distribution(DHT *table, uint64_t ***distribution, int reset) {
     }
   } else {
     ucs_status_t status = ucx_tagged_send(
-        table->ucx_h, 0, table->access_distribution,
+        table->ucx_h, 0, table->stats.index_usage,
         table->ucx_h->comm_size * sizeof(uint64_t), table->ucx_h->self_rank);
     if (unlikely(status != UCS_OK)) {
       return DHT_UCX_ERROR;
@@ -274,7 +272,7 @@ int DHT_gather_distribution(DHT *table, uint64_t ***distribution, int reset) {
   }
 
   if (reset) {
-    memset(table->access_distribution, 0,
+    memset(table->stats.index_usage, 0,
            table->ucx_h->comm_size * sizeof(uint64_t));
   }
 
@@ -286,7 +284,7 @@ int DHT_gather_distribution(DHT *table, uint64_t ***distribution, int reset) {
 }
 
 int DHT_gather_index_usage(DHT *table, uint64_t ***index_usage, int reset) {
-#ifdef DHT_DISTRIBUTION
+#ifdef DHT_STATISTICS
   if (table->ucx_h->self_rank == 0) {
     *index_usage =
         (uint64_t **)calloc(table->ucx_h->comm_size, sizeof(uint64_t *));

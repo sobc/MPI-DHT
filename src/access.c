@@ -72,6 +72,7 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
 
 #ifdef DHT_STATISTICS
   table->stats.w_access++;
+  table->stats.writes_local[dest_rank]++;
 #endif
 
   // loop through the index array, checking for an available bucket
@@ -82,36 +83,28 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
         table->recv_entry,
         table->data_size + table->key_size + 1 + sizeof(uint32_t));
 
-#ifdef DHT_DISTRIBUTION
-    table->access_distribution[dest_rank]++;
-#endif
-
     if (status != UCS_OK) {
       return DHT_UCX_ERROR;
     }
 
     // check if the destination bucket is available
     if (!(*(buffer_begin) & (BUCKET_OCCUPIED | BUCKET_INVALID))) {
-#ifdef DHT_STATISTICS
-      table->stats.writes_local[dest_rank]++;
-#endif
       break;
     }
 
     // check if the keys match
     if (memcmp((buffer_begin + 1), send_key, table->key_size) == 0) {
-      // if the keys don't match, continue to the next index
       break;
     }
   }
 
-  if (curr_index == (table->index_count) - 1) {
-    // if this is the last index, increment the eviction counter
-    table->evictions += 1;
 #ifdef DHT_STATISTICS
-    table->stats.evictions += 1;
+  table->stats.evictions += (uint8_t)(curr_index == table->index_count);
 #endif
+
+  if (curr_index == table->index_count) {
     result = DHT_WRITE_SUCCESS_WITH_EVICTION;
+    curr_index--;
   }
 
   // write the entry to the destination bucket
@@ -125,11 +118,8 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
   }
 
 #ifdef DHT_STATISTICS
+  // if this is the last index, increment the eviction counter
   table->stats.index_usage[curr_index]++;
-#endif
-
-#ifdef DHT_DISTRIBUTION
-  table->access_distribution[dest_rank]++;
 #endif
 
   // set the return values
@@ -162,10 +152,6 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
                  table->index_count, table->index_shift, table->rank_shift,
                  &dest_rank, indices);
 
-#ifdef DHT_DISTRIBUTION
-  table->access_distribution[dest_rank]++;
-#endif
-
   ucs_status_t status;
 
   for (curr_index = 0; curr_index < table->index_count; curr_index++) {
@@ -178,13 +164,8 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
       return DHT_UCX_ERROR;
     }
 
-#ifdef DHT_DISTRIBUTION
-    table->access_distribution[dest_rank]++;
-#endif
-
     // return if bucket is not occupied
     if (!(*(buffer_begin) & (BUCKET_OCCUPIED))) {
-      table->read_misses += 1;
 #ifdef DHT_STATISTICS
       table->stats.read_misses += 1;
 #endif
@@ -226,21 +207,17 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
       if (status != UCS_OK) {
         return DHT_UCX_ERROR;
       }
-#ifdef DHT_DISTRIBUTION
-      table->access_distribution[dest_rank]++;
-#endif
 
       return DHT_READ_CORRUPT;
     }
+  }
 
-    // check if the last index was reached
-    if (curr_index == (table->index_count) - 1) {
-      table->read_misses += 1;
+  // check if all indices were checked
+  if (curr_index == table->index_count) {
 #ifdef DHT_STATISTICS
-      table->stats.read_misses += 0;
+    table->stats.read_misses += 1;
 #endif
-      return DHT_READ_MISS;
-    }
+    return DHT_READ_MISS;
   }
 
   // if matching key was found copy data into memory of passed pointer
