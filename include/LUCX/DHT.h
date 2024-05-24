@@ -271,12 +271,9 @@ int DHT_from_file(DHT *table, const char *filename);
  * the UCX resources.
  *
  * @param table A pointer to the DHT data structure.
- * @param eviction_counter A pointer to a variable that will receive the total
- * number of evictions that occurred during the lifetime of the DHT.
- * @param readerror_counter A pointer to a variable that will receive the total
- * number of read errors that occurred during the lifetime of the DHT.
  * @param chksum_retries A pointer to a variable that will receive the total
  * number of times the checksum verification failed during a write operation.
+ * Can be NULL if the number of checksum retries is not needed.
  *
  * @return UCS_OK on success, or an error code on failure.
  */
