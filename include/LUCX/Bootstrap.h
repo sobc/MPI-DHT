@@ -34,12 +34,13 @@ int ucx_worker_bootstrap_mpi(ucp_address_t *worker_addr_self,
                              uint64_t worker_addr_self_len,
                              const void *func_args,
                              ucx_ep_info_t *endpoint_info);
+
+#define UCX_INIT_BSTRAP_MPI ucx_worker_bootstrap_mpi
+
 #endif
 
 #if defined(c_plusplus) || defined(__cplusplus)
 }
 #endif
-
-#define UCX_INIT_BSTRAP_MPI ucx_worker_bootstrap_mpi
 
 #endif // UCX_BCAST_FUNCTIONS_H_

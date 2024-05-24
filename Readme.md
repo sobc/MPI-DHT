@@ -9,9 +9,17 @@ insertions and updates based on [UCX](https://openucx.org/).
   - [Table of Contents](#table-of-contents)
   - [Installation](#installation)
   - [Usage](#usage)
+    - [Bootstrap functions](#bootstrap-functions)
   - [Remarks](#remarks)
 
 ## Installation
+
+To build the LUCX-DHT library, you need the following dependencies:
+
+- Unified Communication X (UCX)
+- MPI-Implementation (e.g. OpenMPI) --- not strictly necessary, but build will
+  fail as the only bootstrap function provided is for MPI (more on this in
+  [Usage](#usage))
 
 The easiest way to integrate this project into your own project is to download
 this repository or add it as a `git submodule` and use CMake as build system. In
@@ -43,6 +51,33 @@ Otherwise, you can substitute the hash function with your own. The hash function
 is defined at the top of the source file.
 
 Run the example using `mpirun ./ReadWrite`.
+
+In fact, the steps to use the DHT are quite simple:
+
+1. Create a DHT object with `DHT_create()`. Therefore, you need to provide a
+   `DHT_init` structure with the desired settings.
+2. Insert/Update and read data with `DHT_write()` and `DHT_read()` respectively.
+3. Destroy the DHT object with `DHT_free()`.
+
+The documentation of the functions is available at [Gitlab Pages](todo).
+
+### Bootstrap functions
+
+These functions are necessary to set up the UCX context for the DHT. The
+function might use an already existing communication channel or setup a new one.
+The communication channel is used to exchange the `ucp_address_t` pointing to
+the `ucp_worker` of all processes. Additionally, each process will receive
+information on the total count of participating processes and will receive a
+unique ID/rank inside this group.
+
+Currently, the only bootstrap function provided is `ucx_worker_bootstrap_mpi`
+and requires an installed MPI implementation. Feel free to implement your own
+bootstrap function and share it with us.
+
+For the future, another way is to use the already existing MPI communicator and
+its underlying ucx context. This would be a more elegant way to bootstrap the
+communicator, but requires a deeper understanding of the MPI implementation and
+how to retrieve the ucx context from it.
 
 ## Remarks
 
