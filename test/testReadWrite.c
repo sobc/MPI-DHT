@@ -1,5 +1,5 @@
-#include <DHT_ucx/DHT.h>
-#include <DHT_ucx/UCX_bcast_functions.h>
+#include <LUCX/DHT.h>
+#include <LUCX/UCX_bcast_functions.h>
 #include <inttypes.h>
 #include <mpi.h>
 #include <stdint.h>
@@ -48,25 +48,35 @@ int main(int argc, char **argv) {
   key = rank;
   data = rank;
 
+  uint32_t evictions = 0;
+  uint32_t read_misses = 0;
+
   status = DHT_write(object, &key, &data, NULL, NULL);
 
-  if (DHT_UCX_ERROR == status) {
+  switch (status) {
+  case DHT_UCX_ERROR:
     fprintf(stderr, "Error during write. Aborting ...\n");
     MPI_Abort(MPI_COMM_WORLD, status);
+  case DHT_WRITE_SUCCESS_WITH_EVICTION:
+    evictions++;
+  default:;
   }
 
   DHT_barrier(object);
-
-  MPI_Barrier(MPI_COMM_WORLD);
 
   key = (rank + 1) % comm_size;
 
   status = DHT_read(object, &key, &data);
 
-  if (DHT_UCX_ERROR == status) {
+  switch (status) {
+  case DHT_UCX_ERROR:
     fprintf(stderr, "Error during read. Aborting ...\n");
     MPI_Abort(MPI_COMM_WORLD, status);
-    return 1;
+  case DHT_READ_INVALID:
+  case DHT_READ_CORRUPT:
+  case DHT_READ_MISS:
+    read_misses++;
+  default:;
   }
 
   if (key != data) {
@@ -75,17 +85,20 @@ int main(int argc, char **argv) {
     fprintf(stdout, "Rank %d: OK!\n", rank);
   }
 
-  uint64_t read, evic, checksum;
-  status = DHT_free(object, &evic, &read, &checksum);
+  uint32_t checksum;
+  status = DHT_free(object, &checksum);
   if (DHT_SUCCESS != status) {
     fprintf(stderr, "Error during free. Aborting ...\n");
     MPI_Abort(MPI_COMM_WORLD, status);
   }
 
+  uint32_t evic, read;
+
+  MPI_Reduce(&evictions, &evic, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(&read_misses, &read, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
+
   if (rank == 0) {
-    printf("\nEvicted: %" PRIu64 "\nRead: %" PRIu64 "\nChecksum: %" PRIu64
-           "\n\n",
-           evic, read, checksum);
+    printf("\nEvicted: %u\nRead: %u\nChecksum: %u\n\n", evic, read, checksum);
   }
 
   MPI_Finalize();

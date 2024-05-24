@@ -1,4 +1,3 @@
-#include "DHT_ucx/DHT.h"
 #include "ucx_lib.h"
 
 #include <stdint.h>

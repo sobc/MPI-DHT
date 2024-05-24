@@ -36,18 +36,22 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include <ucp/api/ucp_def.h>
+#include <ucs/type/status.h>
 
+#include "UCX_DataTypes.h"
 #include "UCX_bcast_functions.h"
 
 /** Returned if some error in MPI routine occurs. */
 #define DHT_UCX_ERROR -1
 /** Returned by a call of DHT_read if no bucket with given key was found. */
 #define DHT_READ_MISS -2
-/** Returned by DHT_write if a bucket was evicted. */
-#define DHT_WRITE_SUCCESS_WITH_EVICTION -3
 /** Returned by DHT_read if a corrupt bucket was identified (checksum mismatch).
  */
-#define DHT_READ_CORRUPT -4
+#define DHT_READ_CORRUPT -3
+/** Returned by DHT_read if an already invalid marked bucket was read. */
+#define DHT_READ_INVALID -4
+/** Returned by DHT_write if a bucket was evicted. */
+#define DHT_WRITE_SUCCESS_WITH_EVICTION -5
 /** Returned when no errors occured. */
 #define DHT_SUCCESS 0
 
@@ -60,8 +64,10 @@
 /** Returned by DHT file operations if error occured in MPI_Write operation. */
 #define DHT_FILE_WRITE_ERROR -14
 
+/** Returned if no more memory is available. */
 #define DHT_NO_MEM -15
 
+/** Returned if function is not implemented. */
 #define DHT_NOT_IMPLEMENTED -32
 
 /** Size of the file header in byte. */
@@ -70,35 +76,6 @@
 #if defined(c_plusplus) || defined(__cplusplus)
 extern "C" {
 #endif
-
-struct ucx_handle_lock {
-  uint64_t lock_rem_addr;
-  int rank;
-};
-
-struct ucx_c_w_ep_handle {
-  ucp_context_h ucp_context;
-  ucp_worker_h ucp_worker;
-  ucp_ep_h *ep_list;
-};
-
-struct ucx_rma_handle {
-  struct ucx_c_w_ep_handle c_w_ep_h;
-  ucp_mem_h mem_h;
-  uint64_t local_mem_addr;
-  uint64_t *remote_addr;
-  void **rkey_buffer;
-  ucp_rkey_h *rkey_handles;
-};
-
-typedef struct ucx_handle {
-  struct ucx_c_w_ep_handle ptp_h;
-  struct ucx_rma_handle rma_h;
-  struct ucx_handle_lock lock_h;
-  uint32_t lock_size;
-  uint32_t comm_size;
-  uint32_t self_rank;
-} ucx_handle_t;
 
 typedef struct MPI_exchange_t {
   MPI_Comm comm;
@@ -115,9 +92,6 @@ typedef struct MPI_exchange_t {
 typedef struct {
   ucx_handle_t *ucx_h;
   uint64_t offset;
-  uint8_t lock_displ;
-  uint8_t flag_padding;
-  uint8_t data_displacement;
   /** Size of the data of a bucket entry in byte. */
   int data_size;
   /** Size of the key of a bucket entry in byte. */
@@ -130,16 +104,14 @@ typedef struct {
   void *recv_entry;
   /** Pre-allocated memory where a bucket to send can be stored. */
   void *send_entry;
-  /** Count of read misses over all time. */
-  int read_misses;
-  /** Count of evictions over all time. */
-  int evictions;
-
+  /** Count of retries if checksum fails. */
   uint32_t chksum_retries;
-  /** Array of indeces where a bucket can be stored. */
-  uint64_t *index;
   /** Count of possible indeces. */
   unsigned int index_count;
+  /** Count of bits to shift index. */
+  unsigned char index_shift;
+  /** Count of bits to shift rank. */
+  unsigned char rank_shift;
 
   int (*accumulate_callback)(int, void *, int, void *);
 #ifdef DHT_STATISTICS
@@ -161,9 +133,6 @@ typedef struct {
     uint64_t *index_usage;
   } stats;
 #endif
-#ifdef DHT_DISTRIBUTION
-  uint64_t *access_distribution;
-#endif
 } DHT;
 
 typedef struct DHT_init {
@@ -181,16 +150,36 @@ typedef struct DHT_init {
   const void *bcast_func_args;
 } DHT_init_t;
 
-/* extern void DHT_set_accumulate_callback(DHT *table, */
-/*                                         int (*callback_func)(int, void *,
- * int, */
-/*                                                              void *)); */
+/**
+ * @brief Sets the accumulate callback function for the DHT table.
+ *
+ * @param table A pointer to the DHT table.
+ * @param callback_func A function pointer to the callback function.
+ */
+extern void DHT_set_accumulate_callback(DHT *table,
+                                        int (*callback_func)(int, void *, int,
+                                                             void *));
 
-/* extern int DHT_write_accumulate(DHT *table, const void *key, int send_size,
+/**
+ * @brief Writes data to the DHT table and accumulates the values.
+ *
+ * This function writes the specified data to the DHT table and accumulates the
+ * values with the existing data at the specified key. The function returns the
+ * result of the accumulation operation.
+ *
+ * @param table The DHT table.
+ * @param key The key to write the data to.
+ * @param send_size The size of the data to send.
+ * @param data The data to write.
+ * @param proc The process ID of the destination process.
+ * @param index The index of the destination bucket.
+ * @param callback_ret Pointer to store the result of the callback function.
+ *
+ * @return The result of the accumulation operation.
  */
-/*                                 void *data, uint32_t *proc, uint32_t *index,
- */
-/*                                 int *callback_ret); */
+extern int DHT_write_accumulate(DHT *table, const void *key, int send_size,
+                                void *data, uint32_t *proc, uint32_t *index,
+                                int *callback_ret);
 
 /**
  * @brief Creates a distributed hash table (DHT) object.
@@ -282,17 +271,13 @@ int DHT_from_file(DHT *table, const char *filename);
  * the UCX resources.
  *
  * @param table A pointer to the DHT data structure.
- * @param eviction_counter A pointer to a variable that will receive the total
- * number of evictions that occurred during the lifetime of the DHT.
- * @param readerror_counter A pointer to a variable that will receive the total
- * number of read errors that occurred during the lifetime of the DHT.
  * @param chksum_retries A pointer to a variable that will receive the total
  * number of times the checksum verification failed during a write operation.
+ * Can be NULL if the number of checksum retries is not needed.
  *
  * @return UCS_OK on success, or an error code on failure.
  */
-int DHT_free(DHT *table, uint64_t *eviction_counter,
-             uint64_t *readerror_counter, uint64_t *chksum_retries);
+int DHT_free(DHT *table, uint32_t *chksum_retries);
 
 /**
  * @brief Prints a table with statistics about current use of DHT.

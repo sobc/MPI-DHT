@@ -1,8 +1,6 @@
-#include "DHT_ucx/DHT.h"
 #include "ucx_lib.h"
 
 #include <stdint.h>
-#include <stdio.h>
 #include <ucp/api/ucp.h>
 #include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>

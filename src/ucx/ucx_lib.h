@@ -2,7 +2,8 @@
 #define UCX_LIB_H_
 
 #include "../macros.h"
-#include "DHT_ucx/DHT.h"
+#include "LUCX/UCX_DataTypes.h"
+#include "LUCX/UCX_bcast_functions.h"
 
 #include <stdint.h>
 #include <ucp/api/ucp_def.h>
