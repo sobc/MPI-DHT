@@ -1,0 +1,21 @@
+image: debian
+
+before_script:
+  - apt-get update
+  - apt-get install -y build-essential libopenmpi-dev libucx-dev cmake libxxhash-dev doxygen python3-sphinx python3-sphinx-rtd-theme python3-breathe
+
+stages:
+  - documentation
+
+html: 
+  stage: documentation
+  script:
+    - mkdir build && cd build
+    - cmake .. -DDHT_BUILD_DOCS=ON && make sphinx
+    - cd .. && mkdir public && cp -r build/docs/sphinx/* public
+
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
