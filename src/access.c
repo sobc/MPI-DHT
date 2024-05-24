@@ -7,7 +7,7 @@
 #include <string.h>
 #include <sys/types.h>
 
-#define CROP_HASH(hash) (uint32_t) hash
+#define REDUCE_HASH(hash) ((uint32_t)(hash) ^ (uint32_t)((hash) >> 32))
 #define BUCKET_OFFSET(offset, i, disp) (offset * i) + disp
 
 /**
@@ -63,7 +63,7 @@ int DHT_write(DHT *table, void *send_key, void *send_data, uint32_t *proc,
 
   // calculate the checksum of the key and data
   const void *key_val_begin = (char *)table->send_entry + 1;
-  const uint32_t chksum = CROP_HASH(
+  const uint32_t chksum = REDUCE_HASH(
       table->hash_func(table->key_size + table->data_size, key_val_begin));
 
   // store the checksum at the end of the entry
@@ -205,8 +205,8 @@ int DHT_read(DHT *table, const void *send_key, void *destination) {
 
       // check if the checksum is correct
       if (*bucket_checksum ==
-          CROP_HASH(table->hash_func(table->data_size + table->key_size,
-                                     key_val_begin))) {
+          REDUCE_HASH(table->hash_func(table->data_size + table->key_size,
+                                       key_val_begin))) {
         break;
       }
 
