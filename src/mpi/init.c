@@ -1,11 +1,14 @@
 #include <LUCX/DHT.h>
 #include <math.h>
+#include <mpi.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "macros.h"
-#include "ucx/ucx_lib.h"
 
-#define LOCK_SIZE sizeof(uint32_t)
+#define CHKSUM_SIZE sizeof(uint32_t)
 
 /**
  * Calculates the number of bytes needed to store an index for a given number of
@@ -34,10 +37,22 @@ static inline void get_index_bytes(uint64_t nbuckets, uint8_t *index_shift,
 DHT *DHT_create(const DHT_init_t *init_params) {
   DHT *object;
 
-  ucs_status_t status;
+  int status;
 
-  const uint64_t bucket_size =
-      sizeof(uint32_t) + init_params->data_size + init_params->key_size + 1;
+  uint64_t bucket_size = init_params->data_size + init_params->key_size + 1;
+
+  uint32_t padding = 0;
+
+// calculate the size of a bucket
+#if defined(LUCX_MPI_NO_LOCK)
+  bucket_size += CHKSUM_SIZE;
+#elif defined(LUCX_MPI_FINE_LOCK)
+  bucket_size += LOCK_SIZE;
+  if (!!(bucket_size & (LOCK_SIZE - 1))) {
+    padding = LOCK_SIZE - (bucket_size & (LOCK_SIZE - 1));
+    bucket_size += padding;
+  }
+#endif
 
   const uint64_t size_of_dht = init_params->bucket_count * bucket_size;
 
@@ -47,37 +62,38 @@ DHT *DHT_create(const DHT_init_t *init_params) {
     return NULL;
   }
 
-  int bcast_func_ret;
-
-  object->ucx_h = ucx_init(init_params->bcast_func,
-                           init_params->bcast_func_args, &bcast_func_ret);
-
-  if (unlikely((bcast_func_ret != UCX_BCAST_OK) || (object->ucx_h == NULL))) {
+  if (unlikely(MPI_SUCCESS !=
+               MPI_Alloc_mem(size_of_dht, MPI_INFO_NULL, &object->mem_alloc))) {
     goto err_after_object;
   }
 
-  status = ucx_init_rma(object->ucx_h, size_of_dht);
-  if (unlikely(status != UCS_OK)) {
-    goto err_after_ucx_init;
+  if (unlikely(MPI_SUCCESS != MPI_Win_create(object->mem_alloc, size_of_dht, 1,
+                                             MPI_INFO_NULL, init_params->comm,
+                                             &object->window))) {
+    goto err_after_mem_alloc;
   }
+
+  memset(object->mem_alloc, '\0', size_of_dht);
+
+  object->comm = init_params->comm;
+  MPI_Comm_size(init_params->comm, &object->comm_size);
 
   // fill dht-object
   object->displacement = bucket_size;
+  object->padding = padding;
   object->data_size = init_params->data_size;
   object->key_size = init_params->key_size;
   object->bucket_count = init_params->bucket_count;
   object->hash_func = init_params->hash_func;
   object->chksum_retries = 0;
-  object->recv_entry =
-      malloc(1 + object->data_size + object->key_size + sizeof(uint32_t));
+  object->recv_entry = malloc(bucket_size - padding - LOCK_SIZE);
   if (unlikely(object->recv_entry == NULL)) {
-    goto err_after_mem_init;
+    goto err_after_win_create;
   }
-  object->send_entry =
-      malloc(1 + object->data_size + object->key_size + sizeof(uint32_t));
+  object->send_entry = malloc(bucket_size - padding - LOCK_SIZE);
   if (unlikely(object->send_entry == NULL)) {
     free(object->recv_entry);
-    goto err_after_mem_init;
+    goto err_after_win_create;
   }
 
   uint8_t index_bytes;
@@ -86,7 +102,7 @@ DHT *DHT_create(const DHT_init_t *init_params) {
 
   object->index_count = 8 - (index_bytes - 1);
   object->rank_shift =
-      sizeof(uint32_t) * 8 - (unsigned int)ceil(log2(object->ucx_h->comm_size));
+      sizeof(uint32_t) * 8 - (unsigned int)ceil(log2(object->comm_size));
 
   // if set, initialize dht_stats
 #ifdef DHT_STATISTICS
@@ -115,13 +131,18 @@ DHT *DHT_create(const DHT_init_t *init_params) {
   object->stats.r_access = 0;
 #endif
 
+#ifndef LUCX_MPI_OLD
+  MPI_Win_lock_all(0, object->window);
+#endif
+
+  MPI_Barrier(object->comm);
+
   return object;
 
-err_after_mem_init:
-  ucx_free_mem(object->ucx_h);
-err_after_ucx_init:
-  ucx_finalize(object->ucx_h);
-  free(object->ucx_h);
+err_after_win_create:
+  MPI_Win_free(&object->window);
+err_after_mem_alloc:
+  MPI_Free_mem(object->mem_alloc);
 err_after_object:
   free(object);
   return NULL;

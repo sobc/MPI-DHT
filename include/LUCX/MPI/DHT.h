@@ -31,18 +31,10 @@
 #ifndef DHT_H
 #define DHT_H
 
+#include <mpi.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <sys/types.h>
-#ifndef LUCX_MPI_IMPL
-#include "Bootstrap.h"
-#include "DataTypes.h"
-#include <ucp/api/ucp_def.h>
-#include <ucs/type/status.h>
-#else
-#include <mpi.h>
-#endif
 
 /** Returned if some error in MPI routine occurs. */
 #define DHT_UCX_ERROR -1
@@ -87,16 +79,7 @@ extern "C" {
  * Do not touch outside DHT functions!
  */
 typedef struct {
-#ifdef LUCX_MPI_IMPL
   MPI_Win window;
-  /** Allocated memory on which the MPI window was created. */
-  void *mem_alloc;
-  MPI_Comm comm;
-  /** Size of the MPI communicator respectively all participating processes. */
-  int comm_size;
-#else
-  ucx_handle_t *ucx_h;
-#endif
   uint64_t displacement;
   /** Size of the data of a bucket entry in byte. */
   int data_size;
@@ -104,6 +87,10 @@ typedef struct {
   int key_size;
   /** Count of buckets for each process. */
   unsigned int bucket_count;
+  MPI_Comm comm;
+  /** Size of the MPI communicator respectively all participating
+                    processes. */
+  int comm_size;
   /** Pointer to a hashfunction. */
   uint64_t (*hash_func)(int, const void *);
   /** Pre-allocated memory where a bucket can be received. */
@@ -118,8 +105,6 @@ typedef struct {
   unsigned char index_shift;
   /** Count of bits to shift rank. */
   unsigned char rank_shift;
-
-  uint8_t padding;
 
   int (*accumulate_callback)(int, void *, int, void *);
 #ifdef DHT_STATISTICS
@@ -152,14 +137,7 @@ typedef struct DHT_init {
   unsigned int bucket_count;
   /** Pointer to a hashfunction. */
   uint64_t (*hash_func)(int, const void *);
-#ifdef LUCX_MPI_IMPL
   MPI_Comm comm;
-#else
-  /** Pointer to broadcast function */
-  ucx_worker_addr_bootstrap bcast_func;
-  /** pointer to broadcast function arguments */
-  const void *bcast_func_args;
-#endif
 } DHT_init_t;
 
 /**
@@ -316,28 +294,6 @@ int DHT_free(DHT *table, uint32_t *chksum_retries);
  * error.
  */
 int DHT_print_statistics(DHT *table);
-
-#ifndef LUCX_MPI_IMPL
-/**
- * Synchronizes all processes in the DHT communicator.
- *
- * @param table The DHT object.
- * @return UCS_OK if the barrier was successful, or an error code if it failed.
- */
-int DHT_barrier(DHT *table);
-
-int DHT_gather_distribution(DHT *table, uint64_t ***distribution, int reset);
-
-static inline void DHT_free_distribution(DHT *table, uint64_t **distribution) {
-  for (uint32_t i = 0; i < table->ucx_h->comm_size; i++) {
-    free(distribution[i]);
-  }
-  free(distribution);
-}
-
-int DHT_gather_index_usage(DHT *table, uint64_t ***index_usage, int reset);
-
-#endif
 
 #if defined(c_plusplus) || defined(__cplusplus)
 }
