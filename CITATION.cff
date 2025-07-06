@@ -1,0 +1,43 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: MPI-DHT
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Max
+    family-names: Lübke
+    email: mluebke@uni-potsdam.de
+    affiliation: University of Potsdam
+    orcid: 'https://orcid.org/0009-0008-9773-3038'
+  - given-names: Marco
+    family-names: De Lucia
+    email: delucia@gfz.de
+    affiliation: GFZ Helmholtz Centre for Geosciences
+    orcid: 'https://orcid.org/0000-0002-1186-4491'
+  - given-names: Stefan
+    family-names: Petri
+    email: petri@pik-potsdam.de
+    affiliation: Potsdam Institute for Climate Impact Research
+    orcid: 'https://orcid.org/0000-0002-4379-4643'
+  - given-names: Bettina
+    family-names: Schnor
+    email: schnor@cs.uni-potsdam.de
+    affiliation: University of Potsdam
+    orcid: 'https://orcid.org/0000-0001-7369-8057'
+abstract: >-
+  This project is a distributed hash table (DHT)
+  implementation with lock-free insertions, updates and
+  reads based on MPI one-sided communication.
+keywords:
+  - Message Passing Interface
+  - RDMA
+  - Key-Value Store
+  - Distributed Hash Table
+license: GPL-3.0
+commit: a22a6b2eee7c34441d6810d47ac2d9b25ce183e5
+version: '0.1'
+date-released: '2025-03-03'
