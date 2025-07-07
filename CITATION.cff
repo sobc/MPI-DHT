@@ -18,11 +18,6 @@ authors:
     email: delucia@gfz.de
     affiliation: GFZ Helmholtz Centre for Geosciences
     orcid: 'https://orcid.org/0000-0002-1186-4491'
-  - given-names: Stefan
-    family-names: Petri
-    email: petri@pik-potsdam.de
-    affiliation: Potsdam Institute for Climate Impact Research
-    orcid: 'https://orcid.org/0000-0002-4379-4643'
   - given-names: Bettina
     family-names: Schnor
     email: schnor@cs.uni-potsdam.de
@@ -38,6 +33,3 @@ keywords:
   - Key-Value Store
   - Distributed Hash Table
 license: GPL-3.0
-commit: cf9f896a3ffb6063f5208e8fa664c2388f6104fc
-version: '0.1'
-date-released: '2025-07-06'
