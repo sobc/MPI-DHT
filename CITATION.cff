@@ -33,6 +33,3 @@ keywords:
   - Key-Value Store
   - Distributed Hash Table
 license: GPL-3.0
-commit: cf9f896a3ffb6063f5208e8fa664c2388f6104fc
-version: '0.1'
-date-released: '2025-07-06'
